@@ -14,6 +14,22 @@ import * as THREE from 'three';
 import type { WorldState } from './state.ts';
 import type { Obstacle } from './obstacles.ts';
 
+/**
+ * Optional overlay data passed to render() when an automatic controller is active.
+ * When this is provided, debug visualisations are drawn (setpoint line, effort bar).
+ * When undefined/null, no overlays are drawn — manual mode stays clean.
+ */
+export interface OverlayData {
+	/** Target height the controller is driving toward (world units) */
+	setpoint: number;
+	/** Signed control error = setpoint − measurement (positive: bird too low) */
+	error: number;
+	/** Control effort normalised to [0, 1] for effort bar height */
+	controlEffort: number;
+	/** Optional named internal controller variables (e.g. integral, derivative) */
+	controllerInternals?: Record<string, number>;
+}
+
 /** Visual configuration for the scene */
 export interface SceneConfig {
 	/** World Y minimum — maps to visual floor */
@@ -41,6 +57,12 @@ export class GameScene {
 	/** Map from obstacle identity index to their top and bottom pipe meshes */
 	private obstacleMeshes: Map<number, { top: THREE.Mesh; bottom: THREE.Mesh }> = new Map();
 	private config: SceneConfig;
+
+	// --- Overlay meshes (created lazily, shown only in auto mode) ---
+	/** Horizontal dashed-line stand-in: thin flat box spanning the visible world width */
+	private setpointLineMesh: THREE.Mesh | null = null;
+	/** Small rectangle near the bird showing normalised control effort magnitude */
+	private effortBarMesh: THREE.Mesh | null = null;
 
 	constructor(config: Partial<SceneConfig> = {}) {
 		this.config = { ...DEFAULT_SCENE_CONFIG, ...config };
@@ -100,8 +122,13 @@ export class GameScene {
 	/**
 	 * Render one frame given the current world state and obstacle list.
 	 * Creates/removes obstacle meshes as needed.
+	 *
+	 * @param state     - Current world state from the engine
+	 * @param obstacles - Active obstacle list from the engine
+	 * @param overlay   - When provided, debug overlays for auto mode are rendered.
+	 *                    Pass undefined or omit to hide all overlays (manual mode).
 	 */
-	render(state: WorldState, obstacles: Obstacle[]): void {
+	render(state: WorldState, obstacles: Obstacle[], overlay?: OverlayData): void {
 		if (!this.renderer || !this.scene || !this.camera || !this.birdMesh) {
 			return;
 		}
@@ -112,6 +139,13 @@ export class GameScene {
 
 		// Synchronise obstacle meshes
 		this.syncObstacleMeshes(obstacles);
+
+		// Render auto-mode debug overlays
+		if (overlay !== undefined) {
+			this.updateOverlayMeshes(overlay, state.physics.y);
+		} else {
+			this.hideOverlayMeshes();
+		}
 
 		this.renderer.render(this.scene, this.camera);
 	}
@@ -147,6 +181,8 @@ export class GameScene {
 		}
 		this.obstacleMeshes.clear();
 		this.birdMesh = null;
+		this.setpointLineMesh = null;
+		this.effortBarMesh = null;
 		if (this.renderer) {
 			this.renderer.dispose();
 			this.renderer = null;
@@ -209,5 +245,80 @@ export class GameScene {
 			// Position bottom pipe: centred below gapBottom
 			meshPair.bottom.position.set(obstacle.x, this.config.worldYMin + bottomPipeHeight / 2, 0);
 		});
+	}
+
+	/**
+	 * Create or update the setpoint line and effort bar overlay meshes.
+	 *
+	 * Setpoint line: a thin flat box spanning the visible world width, positioned at
+	 * the setpoint height.  Green when error is small, red/blue when large.
+	 *
+	 * Effort bar: a small rectangle to the right of the bird whose height is
+	 * proportional to controlEffort (0–1).  Colour is orange when thrusting.
+	 */
+	private updateOverlayMeshes(overlay: OverlayData, birdY: number): void {
+		if (!this.scene) {
+			return;
+		}
+
+		// --- Setpoint line ---
+		// Use a thin box 20 world-units wide × 0.05 tall to represent the dashed line.
+		if (!this.setpointLineMesh) {
+			const geom = new THREE.BoxGeometry(20, 0.05, 0.1);
+			const mat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.7 });
+			this.setpointLineMesh = new THREE.Mesh(geom, mat);
+			this.setpointLineMesh.renderOrder = 1;
+			this.scene.add(this.setpointLineMesh);
+		}
+
+		// Colour the line: green near zero error, shift toward red/blue on large error
+		const absError = Math.abs(overlay.error);
+		const errorSaturation = Math.min(absError / 3, 1); // saturates at ±3 world units
+		const lineMaterial = this.setpointLineMesh.material as THREE.MeshBasicMaterial;
+		if (overlay.error > 0) {
+			// Bird is below setpoint — line shifts red to indicate downward error
+			lineMaterial.color.setRGB(errorSaturation, 1 - errorSaturation * 0.5, 0);
+		} else {
+			// Bird is above setpoint — line shifts blue
+			lineMaterial.color.setRGB(0, 1 - errorSaturation * 0.5, errorSaturation);
+		}
+
+		// Reposition centred at setpoint height; x centred in camera view
+		const cameraWorldCentreX = 10 - 2; // matches camera lookAt x
+		this.setpointLineMesh.position.set(cameraWorldCentreX, overlay.setpoint, 0.5);
+		this.setpointLineMesh.visible = true;
+
+		// --- Control effort bar ---
+		// A vertical rectangle 0.3 wide, height proportional to controlEffort (max 2 wu).
+		const effortBarMaxHeight = 2.0; // world units
+		const effortHeight = Math.max(overlay.controlEffort * effortBarMaxHeight, 0.05);
+
+		if (!this.effortBarMesh) {
+			const geom = new THREE.BoxGeometry(0.3, effortHeight, 0.1);
+			const mat = new THREE.MeshBasicMaterial({ color: 0xff8800 });
+			this.effortBarMesh = new THREE.Mesh(geom, mat);
+			this.effortBarMesh.renderOrder = 1;
+			this.scene.add(this.effortBarMesh);
+		} else {
+			// Rebuild geometry to reflect new height (cheap: box is small)
+			this.effortBarMesh.geometry.dispose();
+			this.effortBarMesh.geometry = new THREE.BoxGeometry(0.3, effortHeight, 0.1);
+		}
+
+		// Place bar to the right of the bird, bottom-anchored at bird's Y
+		this.effortBarMesh.position.set(0.8, birdY + effortHeight / 2, 0.5);
+		this.effortBarMesh.visible = true;
+	}
+
+	/**
+	 * Hide the overlay meshes without destroying them (they will be reused next frame).
+	 */
+	private hideOverlayMeshes(): void {
+		if (this.setpointLineMesh) {
+			this.setpointLineMesh.visible = false;
+		}
+		if (this.effortBarMesh) {
+			this.effortBarMesh.visible = false;
+		}
 	}
 }

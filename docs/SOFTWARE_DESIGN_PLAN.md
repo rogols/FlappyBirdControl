@@ -293,11 +293,19 @@ interface HighScore {
 - `src/routes/analysis/+page.svelte` — Placeholder (Phase 2 target)
 - Unit tests: 43 passing (physics ×16, On-Off ×13, PID ×13, demo ×1)
 
-## Phase 1 — Core Auto Modes (1–2 sprints)
+## Phase 1 — Core Auto Modes (1–2 sprints) ✅ COMPLETED 2026-03-14
 
 - On-Off + PID in game loop.
 - Telemetry and baseline overlays.
 - Score/high-score implementation.
+
+**Delivered:**
+
+- `src/lib/telemetry/recorder.ts` — TelemetryRecorder ring buffer (record, getHistory, getLatest, clear); wired into game RAF loop
+- `src/lib/persistence/highscore-store.ts` — save/retrieve/clear, top-10 per mode sorted by score; saved on game-over
+- `src/lib/game/scene-three.ts` — OverlayData interface; setpoint line + effort bar meshes shown in auto mode only
+- `src/routes/game/+page.svelte` — auto controller loop (On-Off, PID) calling controller.update() each tick; game-over overlay with score + restart; top-3 high scores display
+- Unit tests: 75 passing (telemetry ×19, persistence ×13, + Phase 0 suite)
 
 ## Phase 2 — Analysis View (1–2 sprints)
 
