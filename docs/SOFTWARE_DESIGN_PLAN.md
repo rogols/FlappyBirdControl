@@ -1,0 +1,288 @@
+# Flappy Bird Control Lab — Software Design Plan
+
+## 1) Purpose and Learning Outcomes
+
+This project transforms Flappy Bird into a **control-theory teaching laboratory** for first-course BSc students.
+
+Primary pedagogical outcomes:
+
+- Experience closed-loop control in an intuitive, game-like environment.
+- Compare controller families under identical process disturbances and constraints:
+  - Manual play (human-in-the-loop)
+  - On-off control
+  - PID control
+  - Generic transfer-function controller \(C(s)\)
+- Connect analysis artifacts (ODE, step response, Bode, pole-zero maps) to behavior in simulation.
+- Build intuition through debug overlays and fast-forward simulation.
+
+## 2) Product Scope
+
+### In Scope (MVP → v1)
+
+- A playable Flappy Bird-like game implemented in Three.js (initially 2D camera/projection style).
+- Game modes:
+  - Manual control
+  - Automatic control with On-Off, PID, and Generic \(G(s)\)-based controller
+- One dedicated **Control Analysis & Design** view tied to the live game model.
+- Real-time debug overlays for automatic mode (setpoint, error, control signal, predicted trajectory).
+- Scores, high-score list, auto-mode speed controls (1x/2x/4x/8x+), run replay metadata.
+- Robust testing and CI guardrails.
+
+### Explicit Future Scope
+
+- Visual progression in game art:
+  1. Primitive 3D geometry (boxes/spheres/cylinders)
+  2. Textured assets inspired by Flappy Bird
+  3. Extended low-poly visual identity
+
+### Non-Goals (initial)
+
+- Multiplayer
+- Cloud-hosted leaderboards with accounts
+- Mobile-native app packaging
+
+## 3) System Architecture Overview
+
+Use a modular front-end architecture in SvelteKit + TypeScript.
+
+## 3.1 High-Level Modules
+
+1. **Game Engine Module**
+   - Simulation clock, world state, physics integration, obstacle generation, collision logic.
+   - Renderer adapter (Three.js scene + camera + UI hooks).
+
+2. **Control Core Module**
+   - Controller interface + implementations (On-Off, PID, TransferFunctionController).
+   - Discrete-time execution, saturation, anti-windup, signal filtering.
+
+3. **Plant/Process Model Module**
+   - Bird vertical dynamics + control input mapping.
+   - Disturbance injection (wind, noise, lag) for teaching experiments.
+
+4. **Analysis Module**
+   - ODE representation and symbolic/textual model display.
+   - Step response generation.
+   - Frequency-domain analysis (Bode) from discrete/continuous representations.
+   - Pole-zero analysis for process and closed-loop model.
+
+5. **Telemetry & Debug Module**
+   - Time-series recording (error, control effort, altitude, velocity, collisions).
+   - Overlay rendering primitives and trace history.
+
+6. **Persistence Module**
+   - Local storage for user settings, controller presets, high scores, recent run summaries.
+
+7. **UI Module**
+   - Game tab
+   - Analysis/Design tab
+   - Debug panel and run controls
+
+## 3.2 Suggested Directory Design
+
+```txt
+a/src
+  /lib
+    /game
+      engine.ts
+      state.ts
+      physics.ts
+      obstacles.ts
+      collision.ts
+      scene-three.ts
+    /control
+      interfaces.ts
+      onoff-controller.ts
+      pid-controller.ts
+      tf-controller.ts
+      discretization.ts
+      signal-utils.ts
+    /analysis
+      model.ts
+      step-response.ts
+      bode.ts
+      pole-zero.ts
+    /telemetry
+      recorder.ts
+      overlays.ts
+      metrics.ts
+    /persistence
+      highscore-store.ts
+      preset-store.ts
+      run-store.ts
+    /ui
+      stores.ts
+      mode-config.ts
+  /routes
+    +page.svelte                  # app shell / landing
+    /game/+page.svelte
+    /analysis/+page.svelte
+```
+
+## 4) Core Domain Model
+
+### 4.1 Process Variables
+
+- Controlled variable \(y\): bird height (or normalized vertical position).
+- Setpoint \(r\): desired height trajectory (constant/step/pattern).
+- Error \(e = r - y\).
+- Control output \(u\): flap impulse or thrust equivalent.
+
+### 4.2 Discrete-Time Update Contract
+
+Every simulation tick \(k\):
+
+1. Read process output \(y_k\).
+2. Compute error \(e_k\).
+3. Controller computes \(u_k\).
+4. Apply actuator limits and optional deadband.
+5. Integrate plant physics \(x\_{k+1} = f(x_k, u_k, d_k)\).
+6. Update telemetry and overlays.
+
+### 4.3 Controller Interface
+
+```ts
+interface Controller {
+	reset(initialState?: unknown): void;
+	update(input: { t: number; dt: number; setpoint: number; measurement: number }): {
+		control: number;
+		internals?: Record<string, number>;
+	};
+}
+```
+
+## 5) Controller Designs
+
+## 5.1 On-Off Controller
+
+- Parameters: threshold/deadband, high output, low output.
+- Optional hysteresis to avoid chattering.
+- Good for introducing limit cycles and basic logic control.
+
+## 5.2 PID Controller
+
+- Parameters: \(K_p, K_i, K_d\), derivative filter coefficient, output limits.
+- Features: anti-windup (back-calculation or clamping), bumpless transfer between manual/auto.
+- Visualize P/I/D terms independently in overlays.
+
+## 5.3 Generic Transfer Function Controller \(C(s)\)
+
+- Input forms:
+  - Numerator/denominator polynomial coefficients
+  - Optional zero-pole-gain form
+- Include discretization choices (Tustin, ZOH approximation).
+- Show resulting \(C(z)\) and update difference equation used in runtime.
+
+## 6) Analysis & Design View Requirements
+
+The analysis view must bind directly to the same model/controller used by game runtime.
+
+Must include:
+
+- Process differential equation in readable form.
+- Step response plot (configurable step amplitude and horizon).
+- Bode magnitude/phase plot (open-loop and optional closed-loop).
+- Pole-zero map with stability cues.
+- Controller tuning panel:
+  - On-Off parameters
+  - PID gains and options
+  - Generic \(C(s)\) coefficients + discretization
+- “Apply to Auto Mode” action that updates active game controller.
+
+## 7) Debug Visualization Requirements
+
+Overlay toggles in automatic mode:
+
+- Current setpoint line and actual altitude trace.
+- Error bar/value + recent error history.
+- Control effort meter and saturation indicators.
+- Predicted short-horizon trajectory.
+- Collision envelope and obstacle gap projection.
+- Optional vectors (velocity, acceleration).
+- Controller internals:
+  - On-Off state + hysteresis state
+  - PID P/I/D contributions
+  - Transfer function internal state values
+
+## 8) UX and Interaction Design Principles
+
+- Prioritize clarity, legibility, low cognitive overhead for classroom use.
+- Side-by-side “Game vs Analysis” mental model:
+  - Analysis tab edits parameters.
+  - Game tab instantly reflects controller behavior.
+- Preset system:
+  - “Stable beginner PID”, “Aggressive PID”, “Oscillatory On-Off”, etc.
+- Fast-forward in auto mode with deterministic simulation stepping.
+- Strong empty states/tooltips explaining control-theory concepts.
+
+## 9) Data Persistence Design
+
+Local persistence keys:
+
+- `fbc.settings`
+- `fbc.highscores`
+- `fbc.controller-presets`
+- `fbc.recent-runs`
+
+High score record proposal:
+
+```ts
+interface HighScore {
+	id: string;
+	mode: 'manual' | 'auto-onoff' | 'auto-pid' | 'auto-tf';
+	score: number;
+	durationSec: number;
+	speedMultiplier: number;
+	timestamp: string;
+	controllerSnapshot: Record<string, unknown>;
+}
+```
+
+## 10) Implementation Roadmap
+
+## Phase 0 — Foundation (1 sprint)
+
+- Architecture scaffolding, type contracts, base stores.
+- Deterministic simulation loop.
+- Primitive-scene Three.js rendering and manual mode.
+
+## Phase 1 — Core Auto Modes (1–2 sprints)
+
+- On-Off + PID in game loop.
+- Telemetry and baseline overlays.
+- Score/high-score implementation.
+
+## Phase 2 — Analysis View (1–2 sprints)
+
+- ODE display and step response.
+- Bode + pole-zero visualizations.
+- Parameter binding and “apply to game”.
+
+## Phase 3 — Generic \(G(s)\) Controller (1 sprint)
+
+- Transfer function input + discretization.
+- Runtime difference equation execution.
+- Controller validation checks and stability warnings.
+
+## Phase 4 — Visual Evolution + Learning Polish (ongoing)
+
+- Texture pass then low-poly pass.
+- Extended overlays, classroom presets, guided scenarios.
+
+## 11) Risks and Mitigations
+
+- **Numerical instability at high fast-forward factors**
+  - Mitigation: fixed-step simulation + sub-stepping.
+- **Controller misuse causing NaN or explosive outputs**
+  - Mitigation: parameter validation, saturation, guard assertions.
+- **Student confusion from too many options**
+  - Mitigation: progressive disclosure and presets.
+- **Drift between analysis model and runtime model**
+  - Mitigation: single shared model library + contract tests.
+
+## 12) Definition of Done (v1)
+
+- All 4 modes playable (manual + 3 controller types).
+- Analysis view outputs consistent with runtime behavior.
+- Debug overlays toggleable and performant.
+- Scores and high-score list operational.
+- CI green with test guardrails and minimum quality thresholds.
