@@ -22,6 +22,7 @@ Students should be able to:
 
 ```sh
 npm install
+npx playwright install --with-deps chromium
 npm run dev
 ```
 
@@ -30,8 +31,12 @@ npm run dev
 ```sh
 npm run check
 npm run lint
+npm run test:unit -- --run
+npm run test:e2e
 npm run test
 ```
+
+> Playwright is a required part of the test suite and must be runnable locally and in CI.
 
 ## Build
 

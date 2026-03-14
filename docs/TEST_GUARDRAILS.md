@@ -36,7 +36,9 @@ Examples:
 - Analysis tuning panel updates the same controller instance consumed by game mode.
 - Fast-forward mode preserves deterministic outcomes relative to baseline.
 
-## 2.3 End-to-End Tests (Playwright)
+## 2.3 End-to-End Tests (Playwright, required)
+
+Playwright is a **mandatory** part of the project test suite.
 
 Critical flows:
 
@@ -44,6 +46,12 @@ Critical flows:
 - Switching to auto mode with each controller runs without runtime errors.
 - Analysis settings update auto mode behavior.
 - High-score list updates and survives reload.
+
+Execution requirements:
+
+- Local setup must include Playwright browser installation.
+- CI must run Playwright smoke tests on every PR.
+- Releases require full Playwright pass (not only unit tests).
 
 ## 2.4 Visual Regression (recommended)
 
@@ -72,7 +80,18 @@ Mandatory runtime checks:
 - Validate transfer-function coefficient input before runtime activation.
 - Emit diagnostic events when protective clamps activate.
 
-## 5) Performance Guardrail
+## 5) Physics-Model Validation Guardrail
+
+The simulation model must remain consistent with the differential-equation design.
+
+Required tests:
+
+- Verify free-fall behavior against analytical expectation when `u=0` and `d(t)=0`.
+- Verify positive control input produces physically plausible climb profiles.
+- Verify drag term reduces velocity magnitude at high speeds.
+- Verify discrete integration error stays within tolerated bounds for chosen `dt`.
+
+## 6) Performance Guardrail
 
 Performance budgets (initial):
 
@@ -85,31 +104,33 @@ Automated checks:
 - Lightweight performance scenario in CI (headless metric capture).
 - Threshold alerting on regressions.
 
-## 6) Accessibility and UX Guardrail
+## 7) Accessibility and UX Guardrail
 
 - Keyboard-first operation for manual mode and UI controls.
 - Contrast-compliant color choices for charts/overlays.
 - Tooltips and labels readable in projector conditions.
 - Avoid information overload by grouping debug toggles.
 
-## 7) CI Pipeline Guardrail
+## 8) CI Pipeline Guardrail
 
 Suggested pipeline stages:
 
 1. Install + cache dependencies.
-2. Type checks.
-3. Lint and formatting checks.
-4. Unit/integration tests.
-5. E2E smoke tests.
-6. Build and artifact validation.
+2. Install Playwright browsers.
+3. Type checks.
+4. Lint and formatting checks.
+5. Unit/integration tests.
+6. Playwright E2E smoke tests.
+7. Build and artifact validation.
 
 Required merge criteria:
 
 - All checks green.
+- Playwright smoke suite green.
 - No reduced coverage for control/analysis critical modules.
 - No unresolved flaky tests.
 
-## 8) Branching and Quality Gates
+## 9) Branching and Quality Gates
 
 - Trunk-based or short-lived feature branches.
 - PR must include:
@@ -119,7 +140,7 @@ Required merge criteria:
   - Screenshots for visual changes
 - At least one reviewer for control-math affecting changes.
 
-## 9) Defect Taxonomy for Fast Triage
+## 10) Defect Taxonomy for Fast Triage
 
 - `NUMERIC`: Instability/NaN/divergence
 - `CONTROL`: Controller logic mismatch
@@ -128,7 +149,7 @@ Required merge criteria:
 - `UX`: Confusing workflows or accessibility issue
 - `PERF`: Frame-time/freeze problems
 
-## 10) Test Data and Scenario Catalog
+## 11) Test Data and Scenario Catalog
 
 Maintain a canonical scenario table (in repo) with fixed seeds:
 

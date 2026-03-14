@@ -72,7 +72,8 @@ PR checklist:
 
 - Summary and rationale
 - Screenshots/video for UI changes
-- Test commands + results
+- Note whether contribution was human-authored, AI-assisted, or AI-authored
+- Test commands + results (including Playwright e2e)
 - Risks and rollback considerations
 - Follow-up tasks (if deferred)
 

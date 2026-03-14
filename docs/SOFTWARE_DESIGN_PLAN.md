@@ -80,7 +80,7 @@ Use a modular front-end architecture in SvelteKit + TypeScript.
 ## 3.2 Suggested Directory Design
 
 ```txt
-a/src
+src
   /lib
     /game
       engine.ts
@@ -150,6 +150,31 @@ interface Controller {
 }
 ```
 
+### 4.4 Physics Model (Realistic Differential Equation Baseline)
+
+The bird should be modeled as a physically meaningful second-order vertical process:
+
+- State: vertical position \(y\) and velocity \(v\).
+- Dynamics:
+  - \(\dot y = v\)
+  - \(m\dot v = u - mg - c_d v\lvert v \rvert + d(t)\)
+
+Where:
+
+- \(m\): bird mass
+- \(g\): gravitational acceleration
+- \(c_d\): aerodynamic drag coefficient
+- \(u\): control input force from flap/thrust actuator
+- \(d(t)\): disturbance term (wind gusts / turbulence)
+
+Discrete-time runtime integration (fixed step \(\Delta t\)) should be implemented consistently for both analysis and game simulation, with optional RK4 or semi-implicit Euler integration depending on performance targets.
+
+Minimum model constraints:
+
+- Enforce actuator saturation between `u_min` and `u_max`.
+- Enforce velocity and altitude bounds to avoid non-physical states.
+- Keep deterministic results under fixed seed + fixed \(\Delta t\).
+
 ## 5) Controller Designs
 
 ## 5.1 On-Off Controller
@@ -178,7 +203,7 @@ The analysis view must bind directly to the same model/controller used by game r
 
 Must include:
 
-- Process differential equation in readable form.
+- Process differential equation in readable form (same coefficients as game runtime model).
 - Step response plot (configurable step amplitude and horizon).
 - Bode magnitude/phase plot (open-loop and optional closed-loop).
 - Pole-zero map with stability cues.
@@ -243,6 +268,7 @@ interface HighScore {
 
 - Architecture scaffolding, type contracts, base stores.
 - Deterministic simulation loop.
+- Realistic baseline physics model using the defined ODE and fixed-step integration.
 - Primitive-scene Three.js rendering and manual mode.
 
 ## Phase 1 — Core Auto Modes (1–2 sprints)
