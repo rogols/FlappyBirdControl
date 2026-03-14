@@ -223,6 +223,27 @@ Read these before implementing anything non-trivial:
 
 ---
 
+## Agent Skills and Subagent Roles
+
+Project-specific skills (slash commands) and subagent role definitions live in `.claude/`:
+
+```
+.claude/
+  skills/
+    qa/SKILL.md         → /qa       run the full quality gate and report results
+    diagnose/SKILL.md   → /diagnose guide systematic root-cause diagnosis before touching code
+    handoff/SKILL.md    → /handoff  generate a structured handoff note after a task
+  agents/
+    implementer.md      feature implementation specialist (one module at a time)
+    verifier.md         validation specialist (runs qa, rejects workarounds, never self-fixes)
+    math.md             control/analysis math specialist (Bode, step response, discretization)
+    test-writer.md      test-writing specialist (does not modify production code)
+```
+
+See **[Agents.md](./Agents.md)** for the full multi-agent workflow, parallelism rules, and handoff contract.
+
+---
+
 ## Defect Taxonomy (use in issue/PR labels)
 
 | Tag | Meaning |
