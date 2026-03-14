@@ -3,16 +3,22 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { GameEngine, DEFAULT_GAME_CONFIG } from '$lib/game/engine';
 	import { GameScene } from '$lib/game/scene-three';
+	import type { OverlayData } from '$lib/game/scene-three';
 	import { gameMode, gameRunning, activeController } from '$lib/ui/stores';
 	import { MODE_CONFIGS } from '$lib/ui/mode-config';
 	import { OnOffController } from '$lib/control/onoff-controller';
 	import { PIDController } from '$lib/control/pid-controller';
 	import type { GameMode } from '$lib/ui/stores';
+	import { TelemetryRecorder } from '$lib/telemetry/recorder';
+	import { saveHighScore, getHighScores } from '$lib/persistence/highscore-store';
+	import type { HighScore } from '$lib/persistence/highscore-store';
 
 	/** Setpoint — target bird height (world units). Midpoint of [0, 10] range. */
 	const SETPOINT = 5.0;
 	/** Flap impulse force applied in manual mode (N) */
 	const FLAP_FORCE = 25.0;
+	/** Max control force used to normalise the effort bar (N) */
+	const MAX_CONTROL = 40.0;
 
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let engine: GameEngine | null = null;
@@ -20,10 +26,23 @@
 	let animFrameId: number | null = null;
 	let lastTimestamp: number | null = null;
 
+	/** Telemetry ring buffer — 1200 samples ≈ 20 s at 60 Hz */
+	const recorder = new TelemetryRecorder(1200);
+
 	let score = $state(0);
 	let alive = $state(true);
 	let running = $derived($gameRunning);
 	let currentMode = $derived($gameMode);
+
+	/** Run start time (seconds) used to compute durationSec on game-over */
+	let runStartTime: number | null = null;
+
+	/** Top-3 high scores for the current mode (refreshed on game-over and mode change) */
+	let topScores: HighScore[] = $state([]);
+
+	function refreshTopScores(): void {
+		topScores = getHighScores($gameMode).slice(0, 3);
+	}
 
 	function createControllerForMode(mode: GameMode) {
 		switch (mode) {
@@ -56,10 +75,16 @@
 			controller.reset();
 		}
 
+		// Reset telemetry for the new run
+		recorder.clear();
+		runStartTime = null;
+
 		gameRunning.set(true);
 		alive = true;
 		score = 0;
 		lastTimestamp = null;
+
+		refreshTopScores();
 
 		// Start render/simulation loop
 		if (animFrameId !== null) {
@@ -86,16 +111,25 @@
 		if (engine && wallDt > 0) {
 			const state = engine.getState();
 
+			// Track run start time for duration calculation
+			if (runStartTime === null) {
+				runStartTime = state.time;
+			}
+
 			// In auto mode: run controller and feed output to engine
+			let lastControl = 0;
+			let controllerInternals: Record<string, number> | undefined;
 			const controller = $activeController;
 			if (controller && MODE_CONFIGS[$gameMode].isAutomatic) {
-				const { control } = controller.update({
+				const result = controller.update({
 					t: state.time,
 					dt: DEFAULT_GAME_CONFIG.fixedDt,
 					setpoint: SETPOINT,
 					measurement: state.physics.y
 				});
-				engine.setControl(control);
+				lastControl = result.control;
+				controllerInternals = result.internals;
+				engine.setControl(lastControl);
 			}
 
 			// Advance simulation
@@ -105,15 +139,49 @@
 			score = newState.score;
 			alive = newState.alive;
 
+			// Record telemetry sample for this frame
+			recorder.record({
+				t: newState.time,
+				y: newState.physics.y,
+				v: newState.physics.v,
+				setpoint: SETPOINT,
+				error: SETPOINT - newState.physics.y,
+				control: lastControl
+			});
+
+			// Build overlay data for auto modes
+			const overlayData: OverlayData | undefined = MODE_CONFIGS[$gameMode].isAutomatic
+				? {
+						setpoint: SETPOINT,
+						error: SETPOINT - newState.physics.y,
+						controlEffort: Math.min(Math.abs(lastControl) / MAX_CONTROL, 1),
+						controllerInternals
+					}
+				: undefined;
+
 			// Render
 			if (scene) {
-				scene.render(newState, newState.obstacles);
+				scene.render(newState, newState.obstacles, overlayData);
 			}
 
-			// Stop loop if game over
+			// Handle game over
 			if (!newState.alive) {
 				gameRunning.set(false);
 				animFrameId = null;
+
+				// Persist high score
+				const durationSec = runStartTime !== null ? newState.time - runStartTime : newState.time;
+				const hs: HighScore = {
+					id: `${Date.now()}-${newState.score}`,
+					mode: $gameMode as HighScore['mode'],
+					score: newState.score,
+					durationSec,
+					speedMultiplier: DEFAULT_GAME_CONFIG.scrollSpeed / 3.0,
+					timestamp: new Date().toISOString(),
+					controllerSnapshot: {}
+				};
+				saveHighScore(hs);
+				refreshTopScores();
 				return;
 			}
 		}
@@ -138,6 +206,7 @@
 	function handleModeChange(event: Event) {
 		const select = event.target as HTMLSelectElement;
 		gameMode.set(select.value as GameMode);
+		refreshTopScores();
 		// Restart with new mode if currently running
 		if ($gameRunning) {
 			stopGame();
@@ -147,6 +216,7 @@
 
 	onMount(() => {
 		window.addEventListener('keydown', handleKeyDown);
+		refreshTopScores();
 	});
 
 	onDestroy(() => {
@@ -185,7 +255,7 @@
 				onclick={startGame}
 				class="rounded bg-green-600 px-4 py-1 text-sm font-semibold text-white hover:bg-green-700"
 			>
-				Start
+				{!alive && score > 0 ? 'Restart' : 'Start'}
 			</button>
 		{:else}
 			<button
@@ -197,10 +267,6 @@
 		{/if}
 
 		<span class="text-sm">Score: <strong>{score}</strong></span>
-
-		{#if !alive && score > 0}
-			<span class="text-sm font-semibold text-red-600">Game over!</span>
-		{/if}
 	</div>
 
 	<!-- Canvas -->
@@ -213,13 +279,30 @@
 			style="aspect-ratio: 2/1;"
 		></canvas>
 
-		{#if !running && !alive && score === 0}
+		<!-- Pre-game prompt -->
+		{#if !running && alive && score === 0}
 			<div
 				class="absolute inset-0 flex flex-col items-center justify-center rounded-lg bg-black/40"
 			>
 				<p class="text-lg font-semibold text-white">
 					{currentMode === 'manual' ? 'Press Start, then Space to flap' : 'Press Start to begin'}
 				</p>
+			</div>
+		{/if}
+
+		<!-- Game-over overlay -->
+		{#if !running && !alive}
+			<div
+				class="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-lg bg-black/60"
+			>
+				<p class="text-3xl font-bold text-white">Game Over</p>
+				<p class="text-xl text-white">Final score: <strong>{score}</strong></p>
+				<button
+					onclick={startGame}
+					class="rounded bg-green-600 px-6 py-2 font-semibold text-white hover:bg-green-700"
+				>
+					Play Again
+				</button>
 			</div>
 		{/if}
 	</div>
@@ -231,4 +314,22 @@
 			Press <kbd class="rounded border bg-gray-200 px-1 py-0.5 text-xs">Space</kbd> to flap.
 		{/if}
 	</p>
+
+	<!-- Top-3 high scores for current mode -->
+	{#if topScores.length > 0}
+		<section class="w-full max-w-2xl">
+			<h2 class="mb-2 text-sm font-semibold text-gray-700">
+				Top scores — {MODE_CONFIGS[currentMode].label}
+			</h2>
+			<ol class="space-y-1">
+				{#each topScores as hs, rank (hs.id)}
+					<li class="flex items-center justify-between rounded bg-gray-100 px-3 py-1 text-sm">
+						<span class="font-medium text-gray-600">#{rank + 1}</span>
+						<span class="font-bold">{hs.score} pipes</span>
+						<span class="text-gray-500">{hs.durationSec.toFixed(1)} s</span>
+					</li>
+				{/each}
+			</ol>
+		</section>
+	{/if}
 </main>
