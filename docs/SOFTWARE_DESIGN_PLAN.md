@@ -272,6 +272,7 @@ interface HighScore {
 - Primitive-scene Three.js rendering and manual mode.
 
 **Delivered:**
+
 - `src/lib/control/interfaces.ts` — Controller interface (shared contract)
 - `src/lib/game/physics.ts` — 2nd-order ODE, semi-implicit Euler, actuator saturation, bounds clamping
 - `src/lib/game/state.ts` — mulberry32 seeded RNG, WorldState, createInitialState
