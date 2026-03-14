@@ -13,10 +13,14 @@
 	import { computePlantPoleZero, computeClosedLoopPoleZero } from '$lib/analysis/pole-zero';
 	import { OnOffController } from '$lib/control/onoff-controller';
 	import { PIDController } from '$lib/control/pid-controller';
+	import { TFController, DEFAULT_TF_PARAMS } from '$lib/control/tf-controller';
 	import type { OnOffParams } from '$lib/control/onoff-controller';
 	import type { PIDParams } from '$lib/control/pid-controller';
 	import { DEFAULT_ONOFF_PARAMS } from '$lib/control/onoff-controller';
 	import { DEFAULT_PID_PARAMS } from '$lib/control/pid-controller';
+	import { tustinDiscretize, formatPolyZ } from '$lib/control/discretization';
+	import { findRoots } from '$lib/analysis/pole-zero';
+	import type { Complex } from '$lib/analysis/pole-zero';
 
 	// ── Physics & model ──────────────────────────────────────────────────────
 	const physicsParams = DEFAULT_PHYSICS_PARAMS;
@@ -72,6 +76,68 @@
 		activeController.set(controller);
 		gameMode.set('auto-pid');
 		applyFeedback = 'PID controller applied to Auto Mode.';
+		setTimeout(() => (applyFeedback = ''), 3000);
+	}
+
+	// ── G(s) Transfer Function tuning ─────────────────────────────────────────
+	let tfNumStr = $state(DEFAULT_TF_PARAMS.numerator.join(' '));
+	let tfDenStr = $state(DEFAULT_TF_PARAMS.denominator.join(' '));
+	let tfOutputMin = $state(DEFAULT_TF_PARAMS.outputMin);
+	let tfOutputMax = $state(DEFAULT_TF_PARAMS.outputMax);
+
+	function parseCoeffs(s: string): number[] {
+		return s
+			.split(/[\s,]+/)
+			.map(parseFloat)
+			.filter((x) => !isNaN(x));
+	}
+
+	const tfNum = $derived(parseCoeffs(tfNumStr));
+	const tfDen = $derived(parseCoeffs(tfDenStr));
+
+	interface TFInfo {
+		ok: boolean;
+		error?: string;
+		discNum?: number[];
+		discDen?: number[];
+		poles?: Complex[];
+		stable?: boolean;
+	}
+
+	const tfInfo = $derived(
+		((): TFInfo => {
+			const num = tfNum;
+			const den = tfDen;
+			if (num.length === 0 || den.length === 0) return { ok: false, error: 'Enter coefficients' };
+			if (num.length - 1 > den.length - 1)
+				return { ok: false, error: 'Improper: deg(N) > deg(D). Add a filter pole to denominator.' };
+			try {
+				const { numerator: dn, denominator: dd } = tustinDiscretize(num, den, DEFAULT_TF_PARAMS.dt);
+				const a0 = dd[0];
+				const normDen = dd.map((c) => c / a0);
+				const normNum = dn.map((c) => c / a0);
+				const poles = findRoots(normDen);
+				const stable = poles.every((p) => Math.sqrt(p.re * p.re + p.im * p.im) < 1.0);
+				return { ok: true, discNum: normNum, discDen: normDen, poles, stable };
+			} catch (e) {
+				return { ok: false, error: e instanceof Error ? e.message : String(e) };
+			}
+		})()
+	);
+
+	function applyTF() {
+		if (!tfInfo.ok) return;
+		const controller = new TFController({
+			numerator: tfNum,
+			denominator: tfDen,
+			dt: DEFAULT_TF_PARAMS.dt,
+			outputMin: tfOutputMin,
+			outputMax: tfOutputMax
+		});
+		controller.reset();
+		activeController.set(controller);
+		gameMode.set('auto-tf');
+		applyFeedback = 'Transfer function controller applied to Auto Mode.';
 		setTimeout(() => (applyFeedback = ''), 3000);
 	}
 
@@ -714,6 +780,111 @@
 			</button>
 		</section>
 	</div>
+
+	<!-- ── G(s) Transfer Function Controller ─────────────────────────────────── -->
+	<section class="rounded-lg border p-4">
+		<h2 class="mb-1 font-semibold">Transfer Function Controller C(s) = N(s) / D(s)</h2>
+		<p class="mb-3 text-xs text-gray-500">
+			Enter polynomial coefficients highest-power first (space or comma separated). System must be
+			proper: deg(N) ≤ deg(D). Sample period T = {(DEFAULT_TF_PARAMS.dt * 1000).toFixed(2)} ms (fixed).
+		</p>
+		<div class="grid gap-4 sm:grid-cols-2">
+			<div class="space-y-2">
+				<label class="flex flex-col gap-1 text-xs">
+					<span class="font-medium">Numerator N(s) coefficients</span>
+					<input
+						type="text"
+						bind:value={tfNumStr}
+						placeholder="e.g.  2  8  (for 2s + 8)"
+						class="rounded border px-2 py-1 font-mono text-xs"
+					/>
+				</label>
+				<label class="flex flex-col gap-1 text-xs">
+					<span class="font-medium">Denominator D(s) coefficients</span>
+					<input
+						type="text"
+						bind:value={tfDenStr}
+						placeholder="e.g.  0.05  1  (for 0.05s + 1)"
+						class="rounded border px-2 py-1 font-mono text-xs"
+					/>
+				</label>
+				<div class="flex gap-3">
+					<label class="flex items-center gap-1 text-xs">
+						<span>u_min (N)</span>
+						<input
+							type="number"
+							min="0"
+							max="40"
+							step="1"
+							bind:value={tfOutputMin}
+							class="w-16 rounded border px-2 py-0.5"
+						/>
+					</label>
+					<label class="flex items-center gap-1 text-xs">
+						<span>u_max (N)</span>
+						<input
+							type="number"
+							min="0"
+							max="40"
+							step="1"
+							bind:value={tfOutputMax}
+							class="w-16 rounded border px-2 py-0.5"
+						/>
+					</label>
+				</div>
+			</div>
+
+			<div class="space-y-2 text-xs">
+				{#if tfInfo.ok && tfInfo.discNum && tfInfo.discDen}
+					<p class="font-medium text-gray-700">
+						Discretised C(z) — Tustin (T = {(DEFAULT_TF_PARAMS.dt * 1000).toFixed(2)} ms):
+					</p>
+					<p class="font-mono text-gray-800">
+						N(z) = {formatPolyZ(tfInfo.discNum)}
+					</p>
+					<p class="font-mono text-gray-800">
+						D(z) = {formatPolyZ(tfInfo.discDen)}
+					</p>
+					{#if tfInfo.poles && tfInfo.poles.length > 0}
+						<p class="mt-1 font-medium text-gray-700">
+							Discrete controller poles (|z| &lt; 1 → stable):
+						</p>
+						{#each tfInfo.poles as pole, i (i)}
+							<p
+								class="font-mono {Math.sqrt(pole.re * pole.re + pole.im * pole.im) < 1
+									? 'text-emerald-700'
+									: 'text-red-600'}"
+							>
+								z{i + 1} = {pole.re.toFixed(4)}
+								{pole.im >= 0 ? '+' : ''}{pole.im.toFixed(4)}j |z| = {Math.sqrt(
+									pole.re * pole.re + pole.im * pole.im
+								).toFixed(4)}
+							</p>
+						{/each}
+					{/if}
+					<div
+						class="mt-2 rounded px-2 py-1 {tfInfo.stable
+							? 'bg-emerald-50 text-emerald-800'
+							: 'bg-red-50 text-red-800'}"
+					>
+						{tfInfo.stable
+							? 'Controller poles: STABLE (all |z| < 1)'
+							: 'Controller poles: UNSTABLE (|z| ≥ 1 detected)'}
+					</div>
+				{:else if !tfInfo.ok}
+					<p class="rounded bg-amber-50 px-2 py-1 text-amber-800">{tfInfo.error}</p>
+				{/if}
+			</div>
+		</div>
+
+		<button
+			onclick={applyTF}
+			disabled={!tfInfo.ok}
+			class="mt-3 rounded bg-purple-600 px-4 py-1 text-xs font-semibold text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-40"
+		>
+			Apply to Auto Mode (Transfer Function)
+		</button>
+	</section>
 
 	{#if applyFeedback}
 		<p class="rounded bg-green-100 px-4 py-2 text-sm text-green-800">{applyFeedback}</p>

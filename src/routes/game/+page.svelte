@@ -8,6 +8,7 @@
 	import { MODE_CONFIGS } from '$lib/ui/mode-config';
 	import { OnOffController } from '$lib/control/onoff-controller';
 	import { PIDController } from '$lib/control/pid-controller';
+	import { TFController, DEFAULT_TF_PARAMS } from '$lib/control/tf-controller';
 	import type { GameMode } from '$lib/ui/stores';
 	import { TelemetryRecorder } from '$lib/telemetry/recorder';
 	import { saveHighScore, getHighScores } from '$lib/persistence/highscore-store';
@@ -50,6 +51,13 @@
 				return new OnOffController({ highOutput: 30, lowOutput: 0, threshold: 0, hysteresis: 0.3 });
 			case 'auto-pid':
 				return new PIDController({ kp: 8, ki: 1, kd: 2, outputMin: 0, outputMax: 40 });
+			case 'auto-tf': {
+				// Use controller already set from analysis view if present, otherwise default
+				const existing = $activeController;
+				if (existing instanceof TFController) return existing;
+				const ctrl = new TFController({ ...DEFAULT_TF_PARAMS });
+				return ctrl;
+			}
 			default:
 				return null;
 		}

@@ -307,17 +307,34 @@ interface HighScore {
 - `src/routes/game/+page.svelte` — auto controller loop (On-Off, PID) calling controller.update() each tick; game-over overlay with score + restart; top-3 high scores display
 - Unit tests: 75 passing (telemetry ×19, persistence ×13, + Phase 0 suite)
 
-## Phase 2 — Analysis View (1–2 sprints)
+## Phase 2 — Analysis View (1–2 sprints) ✅ COMPLETED 2026-03-14
 
 - ODE display and step response.
 - Bode + pole-zero visualizations.
 - Parameter binding and “apply to game”.
 
-## Phase 3 — Generic \(G(s)\) Controller (1 sprint)
+**Delivered:**
+
+- `src/lib/analysis/step-response.ts` — open-loop step response using shared `stepPhysics`
+- `src/lib/analysis/bode.ts` — Bode plots for plant P(s)=1/(m·s²), PID C(s), open-loop L, closed-loop T
+- `src/lib/analysis/pole-zero.ts` — pole-zero maps; Durand–Kerner root finding for closed-loop cubic
+- `src/lib/analysis/model.ts` — ODE display helpers, equilibrium, plant TF coefficients
+- `src/routes/analysis/+page.svelte` — step response SVG chart, Bode magnitude/phase charts, pole-zero SVG map, On-Off + PID tuning panels, “Apply to Auto Mode” buttons
+- Unit tests: 51 new (step-response ×11, bode ×23, pole-zero ×17)
+
+## Phase 3 — Generic \(G(s)\) Controller (1 sprint) ✅ COMPLETED 2026-03-14
 
 - Transfer function input + discretization.
 - Runtime difference equation execution.
 - Controller validation checks and stability warnings.
+
+**Delivered:**
+
+- `src/lib/control/discretization.ts` — polynomial arithmetic helpers (`polyMul`, `polyAdd`, `polyScale`, `polyPow`) and Tustin bilinear transform `tustinDiscretize`; `formatPolyZ` for display
+- `src/lib/control/tf-controller.ts` — `TFController` class implementing the `Controller` interface via Direct Form I difference equation; `DEFAULT_TF_PARAMS` (filtered PD: (2s+8)/(0.05s+1))
+- `src/routes/analysis/+page.svelte` — G(s) tuning panel: coefficient text inputs, live Tustin discretization display, discrete pole locations with stability indicator (|z| < 1), “Apply to Auto Mode (Transfer Function)” button
+- `src/routes/game/+page.svelte` — `auto-tf` mode wired to `TFController`; falls back to default params if no analysis-view controller set
+- Unit tests: 38 new (discretization ×21, tf-controller ×17)
 
 ## Phase 4 — Visual Evolution + Learning Polish (ongoing)
 
