@@ -31,15 +31,15 @@ When something goes wrong, the only acceptable response is to understand the pro
 
 ### What this rules out
 
-| Prohibited response | Why it is wrong |
-|---|---|
-| Adding a `try/catch` or `\|\| defaultValue` around a NaN | Hides the source of the NaN; simulation state is now silently corrupt |
-| Clamping a value downstream because upstream math is wrong | The upstream math is still wrong; clamping defers the next failure |
-| Adding a `setTimeout` / retry to "let things settle" | Treats a race condition or ordering bug as an environmental fluke |
-| Increasing a tolerance or epsilon "to make the test pass" | The test was correct; the implementation is wrong |
-| Skipping or deleting a failing test | Removes evidence of the defect rather than fixing the defect |
-| Adding a special-case `if` for one bad input | Treats a symptom; the general logic is still broken |
-| Copying logic into a second place to avoid changing shared code | Creates two sources of truth; both will diverge |
+| Prohibited response                                             | Why it is wrong                                                       |
+| --------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Adding a `try/catch` or `\|\| defaultValue` around a NaN        | Hides the source of the NaN; simulation state is now silently corrupt |
+| Clamping a value downstream because upstream math is wrong      | The upstream math is still wrong; clamping defers the next failure    |
+| Adding a `setTimeout` / retry to "let things settle"            | Treats a race condition or ordering bug as an environmental fluke     |
+| Increasing a tolerance or epsilon "to make the test pass"       | The test was correct; the implementation is wrong                     |
+| Skipping or deleting a failing test                             | Removes evidence of the defect rather than fixing the defect          |
+| Adding a special-case `if` for one bad input                    | Treats a symptom; the general logic is still broken                   |
+| Copying logic into a second place to avoid changing shared code | Creates two sources of truth; both will diverge                       |
 
 ### When you are stuck
 
@@ -80,12 +80,12 @@ npm run preview          # Preview production build locally
 
 Read these before implementing anything non-trivial:
 
-| File | When to read |
-|---|---|
+| File                           | When to read                                       |
+| ------------------------------ | -------------------------------------------------- |
 | `docs/SOFTWARE_DESIGN_PLAN.md` | Before adding any new module, route, or data model |
-| `docs/TEST_GUARDRAILS.md` | Before writing or modifying tests |
-| `docs/DEVELOPMENT_WORKFLOW.md` | Before branching or creating a PR |
-| `docs/ONBOARDING.md` | For local setup and contribution norms |
+| `docs/TEST_GUARDRAILS.md`      | Before writing or modifying tests                  |
+| `docs/DEVELOPMENT_WORKFLOW.md` | Before branching or creating a PR                  |
+| `docs/ONBOARDING.md`           | For local setup and contribution norms             |
 
 ---
 
@@ -112,11 +112,11 @@ src/routes/
 
 ```ts
 interface Controller {
-  reset(initialState?: unknown): void;
-  update(input: { t: number; dt: number; setpoint: number; measurement: number }): {
-    control: number;
-    internals?: Record<string, number>;
-  };
+	reset(initialState?: unknown): void;
+	update(input: { t: number; dt: number; setpoint: number; measurement: number }): {
+		control: number;
+		internals?: Record<string, number>;
+	};
 }
 ```
 
@@ -150,21 +150,21 @@ Seeded RNG for disturbances and obstacles
 
 ### Requirements by change type
 
-| Change type | Required tests |
-|---|---|
-| Controller logic | Unit tests for state transitions + integration scenario over fixed seed |
-| Analysis math | Unit tests with known reference data (compare to analytical results) |
-| Physics model | Differential-equation validation: free-fall, drag, bounds |
-| UI / gameplay | Playwright E2E scenario + screenshot evidence |
-| Performance-sensitive | Before/after frame-time metrics |
+| Change type           | Required tests                                                          |
+| --------------------- | ----------------------------------------------------------------------- |
+| Controller logic      | Unit tests for state transitions + integration scenario over fixed seed |
+| Analysis math         | Unit tests with known reference data (compare to analytical results)    |
+| Physics model         | Differential-equation validation: free-fall, drag, bounds               |
+| UI / gameplay         | Playwright E2E scenario + screenshot evidence                           |
+| Performance-sensitive | Before/after frame-time metrics                                         |
 
 ### Coverage targets (enforced — do not reduce)
 
-| Module | Target |
-|---|---|
-| `control/` and `analysis/` | ≥ 90% |
-| `game/` core simulation | ≥ 85% |
-| UI utilities and stores | ≥ 75% |
+| Module                     | Target |
+| -------------------------- | ------ |
+| `control/` and `analysis/` | ≥ 90%  |
+| `game/` core simulation    | ≥ 85%  |
+| UI utilities and stores    | ≥ 75%  |
 
 **Numeric robustness** — always assert against `NaN`/`Infinity` in plant state and control output.
 
@@ -196,6 +196,7 @@ Types: `feat`, `fix`, `test`, `refactor`, `docs`, `perf`, `chore`
 Scopes: `game`, `control`, `analysis`, `telemetry`, `persistence`, `ui`, `ci`, `deps`
 
 Examples:
+
 - `feat(control): add PID anti-windup back-calculation`
 - `fix(physics): clamp velocity to prevent NaN at high drag`
 - `test(analysis): add bode-plot reference data assertions`
@@ -234,16 +235,19 @@ Agents may freely modify files within their assigned module boundary. Cross-modu
 ## What NOT to Do
 
 **Debugging:**
+
 - Do not add `try/catch`, default values, or clamps to hide a value you have not diagnosed.
 - Do not widen tolerances or epsilons to make a test pass.
 - Do not add a special-case `if` for a bad input when the general logic is wrong.
 
 **Scope:**
+
 - Do not refactor code not directly related to your task.
 - Do not add comments or docstrings to unchanged code.
 - Do not make speculative improvements not tied to a documented requirement.
 
 **Architecture:**
+
 - Do not introduce coupling between `game/` and `analysis/` modules.
 - Do not skip Playwright tests — they are mandatory, not optional.
 
@@ -253,14 +257,14 @@ Agents may freely modify files within their assigned module boundary. Cross-modu
 
 Use these tags in issues and PR labels:
 
-| Tag | Meaning |
-|---|---|
-| `NUMERIC` | NaN / Infinity / divergence in simulation |
-| `CONTROL` | Controller logic mismatch or wrong behavior |
+| Tag        | Meaning                                            |
+| ---------- | -------------------------------------------------- |
+| `NUMERIC`  | NaN / Infinity / divergence in simulation          |
+| `CONTROL`  | Controller logic mismatch or wrong behavior        |
 | `ANALYSIS` | Bode / step / pole-zero inconsistency with runtime |
-| `RENDER` | Three.js or visual rendering issue |
-| `UX` | Confusing workflows or accessibility regression |
-| `PERF` | Frame-time or freeze problem |
+| `RENDER`   | Three.js or visual rendering issue                 |
+| `UX`       | Confusing workflows or accessibility regression    |
+| `PERF`     | Frame-time or freeze problem                       |
 
 ---
 
@@ -284,11 +288,11 @@ Run through this list before every `git commit`:
 
 Three named workflows must be followed at the points described. Tool-specific adapters (e.g. `CLAUDE.md`) may implement these as slash commands or automated scripts; the workflow definitions themselves are the authoritative specification.
 
-| Workflow | When to run | What it does |
-|---|---|---|
-| **Quality gate** | Before every commit | Run `npm run qa` (check → lint → test:unit → test:e2e) in order. Stop at first failure. Report exact output. Do not attempt fixes during this workflow — only report. |
-| **Diagnosis** | When any bug is found or test fails, before touching code | Follow the 4-step process in §Debugging and Problem-Solving Philosophy: reproduce → diagnose → state root cause in plain language → identify fix location. Do not write a single line of fix code until step 3 is complete. |
-| **Handoff** | After completing any implementation task | Produce a handoff note in the format defined in §Handoff Contract below. Run the quality gate first; do not hand off with a red gate. |
+| Workflow         | When to run                                               | What it does                                                                                                                                                                                                                |
+| ---------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Quality gate** | Before every commit                                       | Run `npm run qa` (check → lint → test:unit → test:e2e) in order. Stop at first failure. Report exact output. Do not attempt fixes during this workflow — only report.                                                       |
+| **Diagnosis**    | When any bug is found or test fails, before touching code | Follow the 4-step process in §Debugging and Problem-Solving Philosophy: reproduce → diagnose → state root cause in plain language → identify fix location. Do not write a single line of fix code until step 3 is complete. |
+| **Handoff**      | After completing any implementation task                  | Produce a handoff note in the format defined in §Handoff Contract below. Run the quality gate first; do not hand off with a red gate.                                                                                       |
 
 ---
 
@@ -296,25 +300,25 @@ Three named workflows must be followed at the points described. Tool-specific ad
 
 Four named roles define who does what. Tool-specific adapters may implement these as subagent definitions with system prompts and tool restrictions; the role descriptions below are the authoritative specification.
 
-| Role | Responsibility |
-|---|---|
+| Role            | Responsibility                                                                                       |
+| --------------- | ---------------------------------------------------------------------------------------------------- |
 | **implementer** | Writes features; works one module at a time; runs quality gate + produces handoff note on completion |
-| **verifier** | Validates implementer output; runs quality gate; rejects workarounds; never self-fixes |
-| **math** | Control and analysis math specialist — Bode, step response, discretization, numeric stability |
-| **test-writer** | Writes and improves tests; does not modify production code |
+| **verifier**    | Validates implementer output; runs quality gate; rejects workarounds; never self-fixes               |
+| **math**        | Control and analysis math specialist — Bode, step response, discretization, numeric stability        |
+| **test-writer** | Writes and improves tests; does not modify production code                                           |
 
 ### Module ownership
 
-| Directory | Primary agent |
-|---|---|
-| `src/lib/game/` | implementer |
-| `src/lib/control/` | implementer + math |
-| `src/lib/analysis/` | math (primary) |
-| `src/lib/telemetry/` | implementer |
-| `src/lib/persistence/` | implementer |
-| `src/lib/ui/` | implementer |
-| `src/routes/` | implementer |
-| `e2e/` | test-writer |
+| Directory                                     | Primary agent       |
+| --------------------------------------------- | ------------------- |
+| `src/lib/game/`                               | implementer         |
+| `src/lib/control/`                            | implementer + math  |
+| `src/lib/analysis/`                           | math (primary)      |
+| `src/lib/telemetry/`                          | implementer         |
+| `src/lib/persistence/`                        | implementer         |
+| `src/lib/ui/`                                 | implementer         |
+| `src/routes/`                                 | implementer         |
+| `e2e/`                                        | test-writer         |
 | `docs/`, `AGENTS.md`, `CLAUDE.md`, `.claude/` | documentation agent |
 
 ### Multi-agent workflow
@@ -343,12 +347,12 @@ Four named roles define who does what. Tool-specific adapters may implement thes
 
 ### Parallelism rules
 
-| Safe to parallelize | Must serialize |
-|---|---|
+| Safe to parallelize                              | Must serialize                                      |
+| ------------------------------------------------ | --------------------------------------------------- |
 | `control/` implementer + `analysis/` implementer | Anything touching shared physics or `interfaces.ts` |
-| Unit-test writer + E2E-test writer | Physics model changes (one agent at a time) |
-| Different Svelte routes with no shared stores | Changes to shared UI stores |
-| Documentation updates + any implementer | Changes to `package.json` scripts |
+| Unit-test writer + E2E-test writer               | Physics model changes (one agent at a time)         |
+| Different Svelte routes with no shared stores    | Changes to shared UI stores                         |
+| Documentation updates + any implementer          | Changes to `package.json` scripts                   |
 
 ### Handoff contract
 
@@ -361,9 +365,9 @@ When an implementer completes a task, produce a note in this format:
 **Files changed:** <list with one-line description each>
 **Tests added / updated:** <list with scenario description each>
 **Commands to verify:**
-  npm run check
-  npm run test:unit -- --run --reporter=verbose
-  npm run test:e2e
+npm run check
+npm run test:unit -- --run --reporter=verbose
+npm run test:e2e
 **Seed used for scenario testing:** <seed value or N/A>
 **Known limitations / follow-up tasks:** <any deferred work>
 ```

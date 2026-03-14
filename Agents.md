@@ -8,12 +8,12 @@ Executable agent roles and workflow skills live in `.claude/` and are loaded aut
 
 ## Relationship to CLAUDE.md
 
-| File | Purpose |
-|---|---|
-| **CLAUDE.md** | Single agent: commands, conventions, testing rules, guardrails |
+| File                      | Purpose                                                                |
+| ------------------------- | ---------------------------------------------------------------------- |
+| **CLAUDE.md**             | Single agent: commands, conventions, testing rules, guardrails         |
 | **Agents.md** (this file) | Multi-agent: directory map, roles, parallelism rules, handoff contract |
-| **`.claude/agents/`** | Subagent definitions — loaded by Claude Code automatically |
-| **`.claude/skills/`** | Reusable workflow skills — invoked as `/skill-name` slash commands |
+| **`.claude/agents/`**     | Subagent definitions — loaded by Claude Code automatically             |
+| **`.claude/skills/`**     | Reusable workflow skills — invoked as `/skill-name` slash commands     |
 
 CLAUDE.md governs what every agent does. Agents.md governs how agents coordinate.
 
@@ -25,18 +25,18 @@ CLAUDE.md governs what every agent does. Agents.md governs how agents coordinate
 
 Project-specific skills live in `.claude/skills/`. Each creates a `/skill-name` slash command.
 
-| Command | File | When to use |
-|---|---|---|
-| `/qa` | `.claude/skills/qa/SKILL.md` | Before every commit — runs the full quality gate and reports results |
-| `/diagnose` | `.claude/skills/diagnose/SKILL.md` | When a bug is found — guides systematic root-cause diagnosis before any code is touched |
-| `/handoff` | `.claude/skills/handoff/SKILL.md` | After completing an implementation — generates a structured handoff note for the next agent |
+| Command     | File                               | When to use                                                                                 |
+| ----------- | ---------------------------------- | ------------------------------------------------------------------------------------------- |
+| `/qa`       | `.claude/skills/qa/SKILL.md`       | Before every commit — runs the full quality gate and reports results                        |
+| `/diagnose` | `.claude/skills/diagnose/SKILL.md` | When a bug is found — guides systematic root-cause diagnosis before any code is touched     |
+| `/handoff`  | `.claude/skills/handoff/SKILL.md`  | After completing an implementation — generates a structured handoff note for the next agent |
 
 Bundled Claude Code skills also available in this project:
 
-| Command | When to use |
-|---|---|
-| `/simplify` | After implementing a feature — reviews changed code for quality, reuse, and efficiency |
-| `/session-start-hook` | Once per environment setup — ensures tests and linters run at session start |
+| Command               | When to use                                                                            |
+| --------------------- | -------------------------------------------------------------------------------------- |
+| `/simplify`           | After implementing a feature — reviews changed code for quality, reuse, and efficiency |
+| `/session-start-hook` | Once per environment setup — ensures tests and linters run at session start            |
 
 ---
 
@@ -44,12 +44,12 @@ Bundled Claude Code skills also available in this project:
 
 Project-specific subagents live in `.claude/agents/`. Each is a focused role with its own system prompt, tool restrictions, and scope.
 
-| Agent | File | Responsibility |
-|---|---|---|
-| `implementer` | `.claude/agents/implementer.md` | Writes features; works in one module at a time; runs `/qa` + `/handoff` on completion |
-| `verifier` | `.claude/agents/verifier.md` | Validates implementer output; runs full quality gate; rejects workarounds; never self-fixes |
-| `math` | `.claude/agents/math.md` | Control and analysis math specialist — Bode, step response, discretization, numeric stability |
-| `test-writer` | `.claude/agents/test-writer.md` | Writes and improves tests; does not modify production code |
+| Agent         | File                            | Responsibility                                                                                |
+| ------------- | ------------------------------- | --------------------------------------------------------------------------------------------- |
+| `implementer` | `.claude/agents/implementer.md` | Writes features; works in one module at a time; runs `/qa` + `/handoff` on completion         |
+| `verifier`    | `.claude/agents/verifier.md`    | Validates implementer output; runs full quality gate; rejects workarounds; never self-fixes   |
+| `math`        | `.claude/agents/math.md`        | Control and analysis math specialist — Bode, step response, discretization, numeric stability |
+| `test-writer` | `.claude/agents/test-writer.md` | Writes and improves tests; does not modify production code                                    |
 
 ---
 
@@ -84,12 +84,12 @@ Project-specific subagents live in `.claude/agents/`. Each is a focused role wit
 
 Agents may work in parallel only when their changes do not overlap:
 
-| Safe to parallelize | Must serialize |
-|---|---|
+| Safe to parallelize                              | Must serialize                                           |
+| ------------------------------------------------ | -------------------------------------------------------- |
 | `control/` implementer + `analysis/` implementer | Anything touching shared `interfaces.ts` or `physics.ts` |
-| Unit-test writer + E2E-test writer | Physics model changes (one agent at a time) |
-| Different Svelte routes with no shared stores | Changes to shared UI stores |
-| Documentation updates + any implementer | Changes to `package.json` scripts |
+| Unit-test writer + E2E-test writer               | Physics model changes (one agent at a time)              |
+| Different Svelte routes with no shared stores    | Changes to shared UI stores                              |
+| Documentation updates + any implementer          | Changes to `package.json` scripts                        |
 
 When in doubt, serialize. A merge conflict in a physics file costs more than the time saved by parallelism.
 
@@ -106,9 +106,9 @@ When an implementer completes a task, run `/handoff` to produce:
 **Files changed:** <list with one-line description each>
 **Tests added / updated:** <list with scenario description each>
 **Commands to verify:**
-  npm run check
-  npm run test:unit -- --run --reporter=verbose
-  npm run test:e2e
+npm run check
+npm run test:unit -- --run --reporter=verbose
+npm run test:e2e
 **Seed used for scenario testing:** <seed value or N/A>
 **Known limitations / follow-up tasks:** <any deferred work>
 ```
@@ -117,16 +117,16 @@ When an implementer completes a task, run `/handoff` to produce:
 
 ## Module ownership
 
-| Directory | Primary agent |
-|---|---|
-| `src/lib/game/` | implementer |
-| `src/lib/control/` | implementer + math |
-| `src/lib/analysis/` | math (primary) |
-| `src/lib/telemetry/` | implementer |
-| `src/lib/persistence/` | implementer |
-| `src/lib/ui/` | implementer |
-| `src/routes/` | implementer |
-| `e2e/` | test-writer |
+| Directory                                     | Primary agent                               |
+| --------------------------------------------- | ------------------------------------------- |
+| `src/lib/game/`                               | implementer                                 |
+| `src/lib/control/`                            | implementer + math                          |
+| `src/lib/analysis/`                           | math (primary)                              |
+| `src/lib/telemetry/`                          | implementer                                 |
+| `src/lib/persistence/`                        | implementer                                 |
+| `src/lib/ui/`                                 | implementer                                 |
+| `src/routes/`                                 | implementer                                 |
+| `e2e/`                                        | test-writer                                 |
 | `docs/`, `CLAUDE.md`, `Agents.md`, `.claude/` | documentation (human or docs-focused agent) |
 
 ---

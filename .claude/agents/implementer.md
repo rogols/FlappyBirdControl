@@ -35,6 +35,7 @@ src/lib/ui/          ← Svelte stores and configuration
 ## Debugging rule (non-negotiable)
 
 When you encounter a bug or test failure during implementation:
+
 1. Reproduce it deterministically (identify seed + inputs).
 2. Diagnose the root cause before writing any fix. Run `/diagnose` if needed.
 3. Fix at the origin — not downstream where the symptom appears.
@@ -44,11 +45,11 @@ When you encounter a bug or test failure during implementation:
 
 ```ts
 interface Controller {
-  reset(initialState?: unknown): void;
-  update(input: { t: number; dt: number; setpoint: number; measurement: number }): {
-    control: number;
-    internals?: Record<string, number>;
-  };
+	reset(initialState?: unknown): void;
+	update(input: { t: number; dt: number; setpoint: number; measurement: number }): {
+		control: number;
+		internals?: Record<string, number>;
+	};
 }
 ```
 

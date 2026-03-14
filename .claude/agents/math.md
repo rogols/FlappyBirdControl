@@ -43,6 +43,7 @@ The analysis module and game runtime must use the **same** shared implementation
 ## Debugging rule
 
 If a computed value is wrong:
+
 1. Derive the expected value analytically first (pen and paper or a known-good tool).
 2. Identify the exact expression in code that produces the wrong value.
 3. Fix that expression — not a downstream clamp or guard.
@@ -53,11 +54,11 @@ Never paper over a numerical error with `Math.max`, `Math.min`, `|| 0`, or a `tr
 
 ```ts
 interface Controller {
-  reset(initialState?: unknown): void;
-  update(input: { t: number; dt: number; setpoint: number; measurement: number }): {
-    control: number;
-    internals?: Record<string, number>;
-  };
+	reset(initialState?: unknown): void;
+	update(input: { t: number; dt: number; setpoint: number; measurement: number }): {
+		control: number;
+		internals?: Record<string, number>;
+	};
 }
 ```
 
