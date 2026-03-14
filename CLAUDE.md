@@ -8,23 +8,16 @@ Read `AGENTS.md` fully before making any changes. Everything in `AGENTS.md` appl
 
 ## Claude-Specific Notes
 
-**Skills and subagents** — Claude Code automatically discovers project-specific skills and subagent roles from `.claude/`:
+**Skills and subagents** — Claude Code automatically discovers project-specific skills and subagent roles from `.claude/`. These are the Claude Code implementations of the workflows and roles defined in `AGENTS.md`:
 
-```
-.claude/
-  skills/
-    qa/SKILL.md         → /qa        full quality gate
-    diagnose/SKILL.md   → /diagnose  root-cause diagnosis workflow
-    handoff/SKILL.md    → /handoff   structured handoff note generator
-  agents/
-    implementer.md      one-module-at-a-time feature implementer
-    verifier.md         quality gate enforcer; never self-fixes
-    math.md             control/analysis math specialist
-    test-writer.md      tests only; never modifies production code
-```
+| AGENTS.md concept | Claude Code implementation |
+|---|---|
+| Quality gate workflow | `/qa` → `.claude/skills/qa/SKILL.md` |
+| Diagnosis workflow | `/diagnose` → `.claude/skills/diagnose/SKILL.md` |
+| Handoff workflow | `/handoff` → `.claude/skills/handoff/SKILL.md` |
+| implementer role | `.claude/agents/implementer.md` |
+| verifier role | `.claude/agents/verifier.md` |
+| math role | `.claude/agents/math.md` |
+| test-writer role | `.claude/agents/test-writer.md` |
 
-**Behaviour preferences:**
-- Prefer incremental edits over full-file rewrites.
-- Run `npm run qa` before finalizing any change.
-- Use repository scripts (`npm run ...`) rather than raw tool invocations where a script exists.
-- When blocked by a bug, run `/diagnose` before touching code.
+**Behaviour note:** When blocked by a bug, invoke the `/diagnose` skill before touching any code. This is the Claude Code implementation of the diagnosis workflow defined in `AGENTS.md §Debugging and Problem-Solving Philosophy`.

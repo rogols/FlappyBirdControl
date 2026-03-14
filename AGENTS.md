@@ -106,10 +106,6 @@ src/routes/
   +page.svelte          # App shell / landing
   game/+page.svelte     # Game view
   analysis/+page.svelte # Analysis & design view
-
-.claude/
-  skills/               # Project-specific slash-command skills (see Agent Skills below)
-  agents/               # Project-specific subagent role definitions (see Agent Roles below)
 ```
 
 ### Core controller interface (TypeScript contract — do not change without discussion)
@@ -143,6 +139,8 @@ Seeded RNG for disturbances and obstacles
 - **Controller logic is isolated from rendering** — never mix.
 - **Analysis and game runtime share the same model library** — single source of truth.
 - **Explicit naming over shorthand** in educational code paths (students read this code).
+- **Prefer incremental edits over full-file rewrites.** Change the minimum necessary to accomplish the task.
+- **Use project scripts over raw tool invocations.** Always prefer `npm run <script>` over equivalent direct commands (e.g. `npm run lint` not `eslint .`). Scripts encode project-specific flags and ordering that raw invocations may miss.
 - Formatting: tabs, single quotes, no trailing commas, 100-char line width (enforced by Prettier).
 - File layout follows the directory design in `docs/SOFTWARE_DESIGN_PLAN.md §3.2`.
 
@@ -220,7 +218,7 @@ Agents may freely modify files within their assigned module boundary. Cross-modu
 - `src/lib/game/physics.ts` (or equivalent shared physics source) — shared between game and analysis
 - Any file defining the `Controller` interface
 - `package.json` scripts (except to add new ones via a reviewed PR)
-- `.claude/agents/` and `.claude/skills/` (documentation agent only)
+- Agent role and workflow definitions (documentation agent only)
 
 ---
 
@@ -282,28 +280,28 @@ Run through this list before every `git commit`:
 
 ---
 
-## Agent Skills (slash commands)
+## Agent Workflows
 
-Project-specific skills live in `.claude/skills/`. Each creates a `/name` slash command usable in Claude Code and compatible tools.
+Three named workflows must be followed at the points described. Tool-specific adapters (e.g. `CLAUDE.md`) may implement these as slash commands or automated scripts; the workflow definitions themselves are the authoritative specification.
 
-| Command | File | When to use |
+| Workflow | When to run | What it does |
 |---|---|---|
-| `/qa` | `.claude/skills/qa/SKILL.md` | Before every commit — runs the full quality gate and reports results |
-| `/diagnose` | `.claude/skills/diagnose/SKILL.md` | When a bug is found — guides systematic root-cause diagnosis before touching any code |
-| `/handoff` | `.claude/skills/handoff/SKILL.md` | After completing an implementation — generates a structured handoff note for the next agent |
+| **Quality gate** | Before every commit | Run `npm run qa` (check → lint → test:unit → test:e2e) in order. Stop at first failure. Report exact output. Do not attempt fixes during this workflow — only report. |
+| **Diagnosis** | When any bug is found or test fails, before touching code | Follow the 4-step process in §Debugging and Problem-Solving Philosophy: reproduce → diagnose → state root cause in plain language → identify fix location. Do not write a single line of fix code until step 3 is complete. |
+| **Handoff** | After completing any implementation task | Produce a handoff note in the format defined in §Handoff Contract below. Run the quality gate first; do not hand off with a red gate. |
 
 ---
 
-## Agent Roles (subagents)
+## Agent Roles
 
-Project-specific subagent definitions live in `.claude/agents/`. Each defines a focused role with its own scope, tool access, and system prompt.
+Four named roles define who does what. Tool-specific adapters may implement these as subagent definitions with system prompts and tool restrictions; the role descriptions below are the authoritative specification.
 
-| Agent | File | Responsibility |
-|---|---|---|
-| `implementer` | `.claude/agents/implementer.md` | Writes features; works one module at a time; runs `/qa` + `/handoff` on completion |
-| `verifier` | `.claude/agents/verifier.md` | Validates implementer output; rejects workarounds; never self-fixes |
-| `math` | `.claude/agents/math.md` | Control and analysis math — Bode, step response, discretization, numeric stability |
-| `test-writer` | `.claude/agents/test-writer.md` | Writes and improves tests; does not modify production code |
+| Role | Responsibility |
+|---|---|
+| **implementer** | Writes features; works one module at a time; runs quality gate + produces handoff note on completion |
+| **verifier** | Validates implementer output; runs quality gate; rejects workarounds; never self-fixes |
+| **math** | Control and analysis math specialist — Bode, step response, discretization, numeric stability |
+| **test-writer** | Writes and improves tests; does not modify production code |
 
 ### Module ownership
 
@@ -322,21 +320,21 @@ Project-specific subagent definitions live in `.claude/agents/`. Each defines a 
 ### Multi-agent workflow
 
 ```
-1. Orchestrator assigns task → implementer agent
+1. Orchestrator assigns task → implementer
    └─ reads AGENTS.md + relevant docs
    └─ writes code + unit tests (one module at a time)
    └─ runs: npm run check && npm run test:unit -- --run
    └─ for math-heavy work: delegates to → math agent
-   └─ runs /qa → must be green
-   └─ runs /handoff → produces handoff note
+   └─ runs quality gate workflow (npm run qa) → must be green
+   └─ produces handoff note (see Handoff Contract)
 
-2. Handoff note → verifier agent
-   └─ runs /qa and reports full output
+2. Handoff note → verifier
+   └─ runs quality gate (npm run qa) and reports full output
    └─ checks coverage, numeric robustness, module coupling
    └─ checks for workarounds (rejects any found — sends back to implementer)
    └─ APPROVED → tag for PR
 
-3. (Optional) → test-writer agent
+3. (Optional) → test-writer
    └─ invoked if coverage drops or new scenarios needed
    └─ does not touch production code
 
@@ -354,7 +352,7 @@ Project-specific subagent definitions live in `.claude/agents/`. Each defines a 
 
 ### Handoff contract
 
-When an implementer completes a task, run `/handoff` to produce:
+When an implementer completes a task, produce a note in this format:
 
 ```markdown
 ## Handoff Note
@@ -375,7 +373,7 @@ When an implementer completes a task, run `/handoff` to produce:
 If an agent is blocked or uncertain:
 
 1. **Stop** — do not make speculative changes to unblock yourself.
-2. **Diagnose** — run `/diagnose`. Trace the data path and state in plain language why the wrong behaviour occurs. If you cannot state the cause clearly, you do not understand it yet.
+2. **Diagnose** — follow the process in §Debugging and Problem-Solving Philosophy. Trace the data path and state in plain language why the wrong behaviour occurs. If you cannot state the cause clearly, you do not understand it yet.
 3. **Document** the blocker: expected behaviour, observed behaviour, what has been ruled out, reproduction steps, and seed value.
 4. **File** a task/issue with the appropriate defect tag.
 5. **Wait** for human or orchestrator resolution before continuing.
