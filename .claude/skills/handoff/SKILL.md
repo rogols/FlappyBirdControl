@@ -23,12 +23,15 @@ Output the handoff note in this exact format:
 **Task completed:** [one sentence]
 
 **Files changed:**
+
 - [list each file with a one-line description of what changed]
 
 **Tests added / updated:**
+
 - [list each test file and what scenario it covers]
 
 **Commands to verify:**
+
 ```bash
 npm run check
 npm run test:unit -- --run --reporter=verbose
@@ -38,6 +41,7 @@ npm run test:e2e
 **Seed used for scenario testing:** [seed value, or "N/A" if no seeded simulation involved]
 
 **Known limitations / follow-up tasks:**
+
 - [any deferred work or known gaps]
 
 ---

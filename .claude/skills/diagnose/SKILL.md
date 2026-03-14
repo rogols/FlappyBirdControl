@@ -9,6 +9,7 @@ You are about to diagnose a bug. Follow these steps strictly. Do not touch produ
 ## Step 1 — Reproduce deterministically
 
 Identify the exact inputs that trigger the failure every time:
+
 - If it involves the simulation: find the seed, step count, and controller settings.
 - If it involves a test: run the specific test in isolation and confirm it fails reliably.
 
@@ -22,6 +23,7 @@ If you cannot reproduce it reliably, stop here. Do not proceed to step 2.
 ## Step 2 — Trace the data path
 
 Read the relevant source files. Trace the data from input to the point where the wrong value appears:
+
 - What value is produced?
 - What value was expected?
 - At which exact file and line does the value first become wrong?
@@ -31,6 +33,7 @@ Do not look at symptoms. Find the origin.
 ## Step 3 — State the root cause in plain language
 
 Write one or two sentences:
+
 > "The bug is caused by [X] in [file:line]. It produces [wrong value] when [condition], because [reason]."
 
 If you cannot write this statement with confidence, you do not yet understand the cause. Return to step 2.

@@ -264,12 +264,33 @@ interface HighScore {
 
 ## 10) Implementation Roadmap
 
-## Phase 0 — Foundation (1 sprint)
+## Phase 0 — Foundation (1 sprint) ✅ COMPLETED 2026-03-14
 
 - Architecture scaffolding, type contracts, base stores.
 - Deterministic simulation loop.
 - Realistic baseline physics model using the defined ODE and fixed-step integration.
 - Primitive-scene Three.js rendering and manual mode.
+
+**Delivered:**
+- `src/lib/control/interfaces.ts` — Controller interface (shared contract)
+- `src/lib/game/physics.ts` — 2nd-order ODE, semi-implicit Euler, actuator saturation, bounds clamping
+- `src/lib/game/state.ts` — mulberry32 seeded RNG, WorldState, createInitialState
+- `src/lib/game/obstacles.ts` — Obstacle type, deterministic spawn/update
+- `src/lib/game/collision.ts` — Bird-obstacle and bounds collision detection
+- `src/lib/game/engine.ts` — GameEngine with fixed-dt sub-stepping
+- `src/lib/game/scene-three.ts` — Orthographic Three.js scene (primitive geometry)
+- `src/lib/control/onoff-controller.ts` — On-Off controller with hysteresis
+- `src/lib/control/pid-controller.ts` — PID with derivative filter and anti-windup
+- `src/lib/control/signal-utils.ts` — Pure signal utility functions
+- `src/lib/ui/stores.ts` — Svelte writable stores (gameMode, activeController, gameRunning)
+- `src/lib/ui/mode-config.ts` — Mode metadata
+- `src/lib/analysis/model.ts` — Stub (Phase 2 target)
+- `src/lib/telemetry/recorder.ts` — Ring-buffer stub (Phase 1 target)
+- `src/lib/persistence/highscore-store.ts` — LocalStorage-backed high scores
+- `src/routes/+page.svelte` — Landing page with mode list and nav
+- `src/routes/game/+page.svelte` — Game page: canvas, RAF loop, keyboard handler, mode selector
+- `src/routes/analysis/+page.svelte` — Placeholder (Phase 2 target)
+- Unit tests: 43 passing (physics ×16, On-Off ×13, PID ×13, demo ×1)
 
 ## Phase 1 — Core Auto Modes (1–2 sprints)
 

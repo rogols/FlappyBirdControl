@@ -31,6 +31,7 @@ npm run test:e2e
 ```
 
 After all steps, report:
+
 - Which steps passed
 - If any step failed: the exact error output, which file and line caused it, and what needs to be fixed
 - Final status: GREEN (all pass) or RED (first failure point)

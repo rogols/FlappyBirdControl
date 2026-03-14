@@ -9,10 +9,7 @@
 
 import { stepPhysics, DEFAULT_PHYSICS_PARAMS } from './physics.ts';
 import type { PhysicsParams } from './physics.ts';
-import {
-	createInitialState,
-	createRng
-} from './state.ts';
+import { createInitialState, createRng } from './state.ts';
 import type { WorldState } from './state.ts';
 import {
 	spawnObstacle,
@@ -52,11 +49,6 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
 	obstacleHalfWidth: 0.5,
 	obstacleSpacing: 6.0,
 	scrollSpeed: 3.0
-};
-
-const WORLD_BOUNDS: WorldBounds = {
-	min: DEFAULT_PHYSICS_PARAMS.yMin,
-	max: DEFAULT_PHYSICS_PARAMS.yMax
 };
 
 export class GameEngine {
@@ -176,10 +168,7 @@ export class GameEngine {
 
 		// Check if we need to spawn: spawn when the most-recently-spawned obstacle has moved
 		// far enough that there's room for the next one.
-		const rightmostX =
-			obstacles.length > 0
-				? Math.max(...obstacles.map((o) => o.x))
-				: -Infinity;
+		const rightmostX = obstacles.length > 0 ? Math.max(...obstacles.map((o) => o.x)) : -Infinity;
 
 		if (rightmostX < this.config.obstacleConfig.spawnX - this.config.obstacleSpacing) {
 			const newObstacle = spawnObstacle(this.rng, this.config.obstacleConfig);
