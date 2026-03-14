@@ -13,6 +13,8 @@
 	import { TelemetryRecorder } from '$lib/telemetry/recorder';
 	import { saveHighScore, getHighScores } from '$lib/persistence/highscore-store';
 	import type { HighScore } from '$lib/persistence/highscore-store';
+	import { getAllPresets } from '$lib/persistence/preset-store';
+	import type { ControllerPreset } from '$lib/persistence/preset-store';
 
 	/** Setpoint — target bird height (world units). Midpoint of [0, 10] range. */
 	const SETPOINT = 5.0;
@@ -20,6 +22,10 @@
 	const FLAP_FORCE = 25.0;
 	/** Max control force used to normalise the effort bar (N) */
 	const MAX_CONTROL = 40.0;
+	/** Speed multiplier options (simulation time / wall-clock time) */
+	const SPEED_OPTIONS = [1, 2, 4, 8] as const;
+	/** Number of telemetry samples shown in the mini-chart */
+	const CHART_SAMPLES = 180;
 
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let engine: GameEngine | null = null;
@@ -34,12 +40,25 @@
 	let alive = $state(true);
 	let running = $derived($gameRunning);
 	let currentMode = $derived($gameMode);
+	let speedMultiplier = $state<1 | 2 | 4 | 8>(1);
+
+	/** Latest controller internals for PID/TF overlay */
+	let latestInternals: Record<string, number> | undefined = $state(undefined);
+
+	/** Mini-chart data — last CHART_SAMPLES error values */
+	let chartSamples: number[] = $state([]);
 
 	/** Run start time (seconds) used to compute durationSec on game-over */
 	let runStartTime: number | null = null;
 
 	/** Top-3 high scores for the current mode (refreshed on game-over and mode change) */
 	let topScores: HighScore[] = $state([]);
+
+	/** All available presets (built-ins + user-saved) */
+	let allPresets: ControllerPreset[] = $state(getAllPresets());
+
+	/** Presets relevant to the current mode */
+	let modePresets = $derived(allPresets.filter((p) => p.config.mode === currentMode));
 
 	function refreshTopScores(): void {
 		topScores = getHighScores($gameMode).slice(0, 3);
@@ -61,6 +80,34 @@
 			default:
 				return null;
 		}
+	}
+
+	/** Apply a preset — creates a new controller from preset params and updates stores */
+	function applyPreset(preset: ControllerPreset): void {
+		const cfg = preset.config;
+		let ctrl: OnOffController | PIDController | TFController | null = null;
+
+		if (cfg.mode === 'auto-onoff') {
+			ctrl = new OnOffController(cfg.params);
+		} else if (cfg.mode === 'auto-pid') {
+			ctrl = new PIDController(cfg.params);
+		} else if (cfg.mode === 'auto-tf') {
+			ctrl = new TFController(cfg.params);
+		}
+
+		if (!ctrl) return;
+
+		gameMode.set(cfg.mode);
+		activeController.set(ctrl);
+		ctrl.reset();
+
+		// Restart game with the new controller if running
+		if ($gameRunning) {
+			stopGame();
+			startGame();
+		}
+
+		refreshTopScores();
 	}
 
 	function startGame() {
@@ -85,6 +132,8 @@
 
 		// Reset telemetry for the new run
 		recorder.clear();
+		chartSamples = [];
+		latestInternals = undefined;
 		runStartTime = null;
 
 		gameRunning.set(true);
@@ -113,8 +162,11 @@
 	function loop(timestamp: number) {
 		if (!$gameRunning) return;
 
-		const wallDt = lastTimestamp !== null ? (timestamp - lastTimestamp) / 1000 : 0;
+		const rawWallDt = lastTimestamp !== null ? (timestamp - lastTimestamp) / 1000 : 0;
 		lastTimestamp = timestamp;
+
+		// Apply speed multiplier: advance simulation faster than wall-clock
+		const wallDt = rawWallDt * speedMultiplier;
 
 		if (engine && wallDt > 0) {
 			const state = engine.getState();
@@ -157,6 +209,10 @@
 				control: lastControl
 			});
 
+			// Update mini-chart and internals for overlay panel
+			latestInternals = controllerInternals;
+			chartSamples = recorder.getHistory(CHART_SAMPLES).map((s) => s.error);
+
 			// Build overlay data for auto modes
 			const overlayData: OverlayData | undefined = MODE_CONFIGS[$gameMode].isAutomatic
 				? {
@@ -184,7 +240,7 @@
 					mode: $gameMode as HighScore['mode'],
 					score: newState.score,
 					durationSec,
-					speedMultiplier: DEFAULT_GAME_CONFIG.scrollSpeed / 3.0,
+					speedMultiplier,
 					timestamp: new Date().toISOString(),
 					controllerSnapshot: {}
 				};
@@ -220,6 +276,23 @@
 			stopGame();
 			startGame();
 		}
+	}
+
+	/**
+	 * Build SVG polyline points for the error mini-chart.
+	 * Y axis: error clamped to [-5, 5] world units, mapped to [chartH, 0].
+	 */
+	function buildChartPoints(errors: number[], width: number, height: number): string {
+		if (errors.length < 2) return '';
+		const xStep = width / (errors.length - 1);
+		const halfH = height / 2;
+		return errors
+			.map((e, i) => {
+				const x = i * xStep;
+				const y = halfH - (Math.max(-5, Math.min(5, e)) / 5) * halfH;
+				return `${x.toFixed(1)},${y.toFixed(1)}`;
+			})
+			.join(' ');
 	}
 
 	onMount(() => {
@@ -258,6 +331,25 @@
 			</select>
 		</label>
 
+		<!-- Speed multiplier buttons (auto modes only) -->
+		{#if currentMode !== 'manual'}
+			<div class="flex items-center gap-1">
+				<span class="text-sm font-medium">Speed:</span>
+				{#each SPEED_OPTIONS as spd (spd)}
+					<button
+						onclick={() => {
+							speedMultiplier = spd;
+						}}
+						class="rounded px-2 py-1 text-xs font-semibold {speedMultiplier === spd
+							? 'bg-blue-600 text-white'
+							: 'bg-white text-gray-700 hover:bg-gray-200'} border"
+					>
+						{spd}x
+					</button>
+				{/each}
+			</div>
+		{/if}
+
 		{#if !running}
 			<button
 				onclick={startGame}
@@ -276,6 +368,26 @@
 
 		<span class="text-sm">Score: <strong>{score}</strong></span>
 	</div>
+
+	<!-- Preset selector (auto modes only) -->
+	{#if currentMode !== 'manual' && modePresets.length > 0}
+		<div class="w-full max-w-2xl rounded-lg border bg-white p-3">
+			<p class="mb-2 text-xs font-semibold tracking-wide text-gray-500 uppercase">
+				Classroom Presets
+			</p>
+			<div class="flex flex-wrap gap-2">
+				{#each modePresets as preset (preset.id)}
+					<button
+						onclick={() => applyPreset(preset)}
+						title={preset.description}
+						class="rounded border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
+					>
+						{preset.label}
+					</button>
+				{/each}
+			</div>
+		</div>
+	{/if}
 
 	<!-- Canvas -->
 	<div class="relative w-full max-w-2xl">
@@ -321,7 +433,112 @@
 		{#if currentMode === 'manual'}
 			Press <kbd class="rounded border bg-gray-200 px-1 py-0.5 text-xs">Space</kbd> to flap.
 		{/if}
+		{#if currentMode !== 'manual' && speedMultiplier > 1}
+			Running at <strong>{speedMultiplier}x</strong> speed.
+		{/if}
 	</p>
+
+	<!-- Telemetry panel: error mini-chart + PID breakdown (auto modes, while running) -->
+	{#if currentMode !== 'manual' && running}
+		<div class="w-full max-w-2xl rounded-lg border bg-white p-3">
+			<p class="mb-1 text-xs font-semibold tracking-wide text-gray-500 uppercase">
+				Error History (last {CHART_SAMPLES / 60}s)
+			</p>
+			<!-- SVG mini-chart: error over time -->
+			<svg
+				width="100%"
+				height="60"
+				viewBox="0 0 600 60"
+				preserveAspectRatio="none"
+				class="rounded border bg-gray-50"
+				aria-label="Error history chart"
+			>
+				<!-- Zero line -->
+				<line x1="0" y1="30" x2="600" y2="30" stroke="#d1d5db" stroke-width="1" />
+				<!-- Error trace -->
+				{#if chartSamples.length >= 2}
+					<polyline
+						points={buildChartPoints(chartSamples, 600, 60)}
+						fill="none"
+						stroke="#2563eb"
+						stroke-width="1.5"
+					/>
+				{/if}
+				<!-- ±1 unit guide lines -->
+				<line x1="0" y1="24" x2="600" y2="24" stroke="#e5e7eb" stroke-width="0.5" />
+				<line x1="0" y1="36" x2="600" y2="36" stroke="#e5e7eb" stroke-width="0.5" />
+				<!-- Labels -->
+				<text x="2" y="8" font-size="8" fill="#6b7280">+5</text>
+				<text x="2" y="57" font-size="8" fill="#6b7280">−5</text>
+				<text x="2" y="32" font-size="8" fill="#6b7280">0</text>
+			</svg>
+
+			<!-- PID component bars (pid mode only) -->
+			{#if currentMode === 'auto-pid' && latestInternals}
+				{@const p = latestInternals.proportional ?? 0}
+				{@const i = latestInternals.integral ?? 0}
+				{@const d = latestInternals.derivative ?? 0}
+				{@const total = latestInternals.outputUnsaturated ?? 0}
+				<div class="mt-3 space-y-1">
+					<p class="text-xs font-semibold tracking-wide text-gray-500 uppercase">PID Components</p>
+					{#each [{ label: 'P', value: p, color: '#2563eb' }, { label: 'I', value: i, color: '#16a34a' }, { label: 'D', value: d, color: '#dc2626' }, { label: 'Total', value: total, color: '#7c3aed' }] as term (term.label)}
+						<div class="flex items-center gap-2 text-xs">
+							<span class="w-8 font-mono font-semibold" style="color:{term.color}"
+								>{term.label}</span
+							>
+							<div class="relative h-3 flex-1 overflow-hidden rounded bg-gray-100">
+								<!-- Positive bar -->
+								{#if term.value > 0}
+									<div
+										class="absolute top-0 h-full rounded"
+										style="left:50%;width:{Math.min(
+											(term.value / MAX_CONTROL) * 50,
+											50
+										)}%;background:{term.color};opacity:0.75"
+									></div>
+								{:else if term.value < 0}
+									<!-- Negative bar, extends left from centre -->
+									<div
+										class="absolute top-0 h-full rounded"
+										style="right:50%;width:{Math.min(
+											(-term.value / MAX_CONTROL) * 50,
+											50
+										)}%;background:{term.color};opacity:0.75"
+									></div>
+								{/if}
+								<!-- Centre marker -->
+								<div class="absolute top-0 left-1/2 h-full w-px bg-gray-300"></div>
+							</div>
+							<span class="w-14 text-right font-mono text-gray-600">{term.value.toFixed(2)}</span>
+						</div>
+					{/each}
+				</div>
+			{/if}
+
+			<!-- TF internals summary -->
+			{#if currentMode === 'auto-tf' && latestInternals}
+				<div class="mt-2 flex gap-4 text-xs text-gray-600">
+					<span>Error: <strong>{(latestInternals.error ?? 0).toFixed(3)}</strong></span>
+					<span>u_raw: <strong>{(latestInternals.u_raw ?? 0).toFixed(3)}</strong></span>
+				</div>
+			{/if}
+
+			<!-- On-Off state indicator -->
+			{#if currentMode === 'auto-onoff' && latestInternals}
+				<div class="mt-2 flex items-center gap-3 text-xs">
+					<span class="text-gray-600">Output state:</span>
+					<span
+						class="rounded px-2 py-0.5 font-bold {latestInternals.isHigh
+							? 'bg-orange-100 text-orange-700'
+							: 'bg-gray-200 text-gray-600'}"
+					>
+						{latestInternals.isHigh ? 'HIGH' : 'LOW'}
+					</span>
+					<span class="text-gray-500">Error: {(latestInternals.error ?? 0).toFixed(3)}</span>
+				</div>
+			{/if}
+		</div>
+	{/if}
 
 	<!-- Top-3 high scores for current mode -->
 	{#if topScores.length > 0}
@@ -335,6 +552,9 @@
 						<span class="font-medium text-gray-600">#{rank + 1}</span>
 						<span class="font-bold">{hs.score} pipes</span>
 						<span class="text-gray-500">{hs.durationSec.toFixed(1)} s</span>
+						{#if hs.speedMultiplier > 1}
+							<span class="text-xs text-blue-600">{hs.speedMultiplier}x</span>
+						{/if}
 					</li>
 				{/each}
 			</ol>

@@ -336,10 +336,16 @@ interface HighScore {
 - `src/routes/game/+page.svelte` — `auto-tf` mode wired to `TFController`; falls back to default params if no analysis-view controller set
 - Unit tests: 38 new (discretization ×21, tf-controller ×17)
 
-## Phase 4 — Visual Evolution + Learning Polish (ongoing)
+## Phase 4 — Visual Evolution + Learning Polish ✅ COMPLETED 2026-03-14
 
 - Texture pass then low-poly pass.
 - Extended overlays, classroom presets, guided scenarios.
+
+**Delivered:**
+
+- `src/lib/persistence/preset-store.ts` — `ControllerPreset` interface; 6 built-in classroom presets (On-Off slow/chattering, PID beginner/tuned/aggressive, TF filtered PD); localStorage-backed user preset CRUD (`savePreset`, `getUserPresets`, `getAllPresets`, `deletePreset`, `findPreset`, `clearUserPresets`, `generatePresetId`)
+- `src/routes/game/+page.svelte` — Speed multiplier selector (1×/2×/4×/8×) for auto modes; telemetry mini-chart (SVG error-history strip, last 3 s); PID component bars (P/I/D/Total visualised as bidirectional bars); On-Off state indicator; TF internals summary; classroom preset selector buttons that hot-swap controller and restart game
+- Unit tests: 28 new (preset-store ×28) — 192 total passing
 
 ## 11) Risks and Mitigations
 
