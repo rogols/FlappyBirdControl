@@ -8,6 +8,42 @@ This file is read automatically by Claude Code and compatible AI agents. Read it
 
 ---
 
+## Debugging and Problem-Solving Philosophy
+
+> **Read this before touching any bug or unexpected behaviour.**
+
+**Fix the root cause. Never paper over it.**
+
+When something goes wrong, the only acceptable response is to understand the problem at its fundamental level and correct it there. Do not add workarounds, guards, retries, fallbacks, or extra layers of logic to compensate for a flaw you have not diagnosed.
+
+### The required process
+
+1. **Reproduce** the failure deterministically. Use the seeded simulation: identify the seed, step count, and inputs that trigger it every time. A bug you cannot reproduce reliably is a bug you do not yet understand.
+
+2. **Diagnose before touching code.** Read the relevant source, trace the data path, and state — in plain language — exactly why the wrong behaviour occurs. If you cannot state the cause clearly, you do not understand it yet. Keep reading.
+
+3. **Fix at the origin.** The change belongs in the place where the incorrect value is first produced, not downstream where its effects are visible. A symptom fixed at the surface is a bug deferred, not resolved.
+
+4. **Verify the fix is sufficient.** After the change, the root cause must be gone — not merely hidden. Add a test that would have caught the original failure. Confirm `npm run qa` is green.
+
+### What this rules out
+
+| Prohibited response | Why it is wrong |
+|---|---|
+| Adding a `try/catch` or `|| defaultValue` around a NaN | Hides the source of the NaN; simulation state is now silently corrupt |
+| Clamping a value downstream because upstream math is wrong | The upstream math is still wrong; clamping defers the next failure |
+| Adding a `setTimeout` / retry to "let things settle" | Treats a race condition or ordering bug as an environmental fluke |
+| Increasing a tolerance or epsilon "to make the test pass" | The test was correct; the implementation is wrong |
+| Skipping or deleting a failing test | Removes evidence of the defect rather than fixing the defect |
+| Adding a special-case `if` for one bad input | Treats a symptom; the general logic is still broken |
+| Copying logic into a second place to avoid changing shared code | Creates two sources of truth; both will diverge |
+
+### When you are stuck
+
+If you cannot identify the root cause, **stop and document what you know** rather than attempting a workaround. Write down: what is observed, what was expected, what you have ruled out, and the reproduction seed. Surface this to the team. An undiagnosed bug documented clearly is better than a diagnosed bug patched badly.
+
+---
+
 ## Essential Commands
 
 ```bash
@@ -128,12 +164,21 @@ Seeded RNG for disturbances and obstacles
 
 ## What NOT to Do
 
+**Debugging (see Debugging Philosophy section for full detail):**
+- Do not add `try/catch`, default values, or clamps to hide a value you have not diagnosed.
+- Do not delete or skip a failing test — it is evidence; fix the code the test exposes.
+- Do not widen tolerances or epsilons to make a test pass.
+- Do not add a special-case `if` for a bad input when the general logic is wrong.
+
+**Scope:**
 - Do not refactor code not directly related to your task.
 - Do not add comments or docstrings to unchanged code.
+- Do not make speculative improvements not tied to a documented requirement.
+
+**Architecture:**
 - Do not introduce coupling between `game/` and `analysis/` modules.
 - Do not use `Date.now()` or `Math.random()` inside physics or simulation code (use seeded RNG).
 - Do not bypass ESLint with `eslint-disable` without a documented reason.
-- Do not make speculative improvements not tied to a documented requirement.
 - Do not skip Playwright tests — they are mandatory, not optional.
 
 ---
@@ -196,6 +241,8 @@ Read these before implementing anything non-trivial:
 Run through this list mentally before `git commit`:
 
 - [ ] `npm run qa` passes with zero errors
+- [ ] Every bug fixed at its root cause — no workarounds, no suppressed symptoms
+- [ ] No test was deleted, skipped, or had its tolerance widened to achieve green
 - [ ] New/changed math is unit-tested with reference data
 - [ ] No `NaN`/`Infinity` possible in simulation output
 - [ ] No new coupling introduced between isolated modules

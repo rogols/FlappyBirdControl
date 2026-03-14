@@ -13,6 +13,8 @@ This file describes how AI agents should collaborate on FlappyBirdControl, what 
 
 CLAUDE.md governs what every agent does. Agents.md governs how agents coordinate.
 
+> **Core principle (enforced across all roles):** When a bug or error is found, diagnose it at its root cause and fix it there. Do not add workarounds, guards, retries, or extra layers to compensate for undiagnosed faults. See **CLAUDE.md § Debugging and Problem-Solving Philosophy** for the required process and a table of prohibited responses.
+
 ---
 
 ## Agent Roles
@@ -43,6 +45,7 @@ Reviews and validates work produced by the Implementer.
 - Confirm no `NaN`/`Infinity` possible in physics or control paths.
 - Confirm no coupling introduced between isolated modules.
 - Confirm Playwright E2E suite passes.
+- **Confirm no workarounds introduced:** reject any `try/catch` suppressing an undiagnosed error, any test deleted or tolerance widened to achieve green, any downstream clamp compensating for upstream bad math. If found, send back to Implementer with a request to diagnose and fix the root cause.
 - If any check fails: open a task for the Implementer describing exactly what must be fixed.
 
 **Never** approve or merge without a green `npm run qa`.
@@ -203,8 +206,9 @@ Use this to decide which agent role should handle each directory:
 If an agent is blocked or uncertain:
 
 1. **Stop** — do not make speculative changes to unblock yourself.
-2. **Document** the blocker: expected behavior, observed behavior, reproduction steps, seed.
-3. **File** a task/issue with the defect tag (`NUMERIC`, `CONTROL`, etc. from CLAUDE.md).
-4. **Wait** for human or orchestrator resolution before continuing.
+2. **Diagnose** — trace the data path and state in plain language why the wrong behaviour occurs. If you cannot state the cause clearly, you do not understand it yet.
+3. **Document** the blocker: expected behaviour, observed behaviour, what has been ruled out, reproduction steps, and seed value.
+4. **File** a task/issue with the defect tag (`NUMERIC`, `CONTROL`, etc. from CLAUDE.md).
+5. **Wait** for human or orchestrator resolution before continuing.
 
-Never introduce a workaround that violates a quality guardrail (e.g., disabling a test, removing a type check, hardcoding a value) to unblock yourself.
+**Never** introduce a workaround to unblock yourself — no disabled tests, no suppressed type errors, no hardcoded values, no downstream clamps compensating for upstream bad math. An undiagnosed bug clearly documented is a better outcome than a patched bug whose root cause is still present.
