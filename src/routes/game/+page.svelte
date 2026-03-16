@@ -49,6 +49,8 @@
 	let speedMultiplier = $state<1 | 2 | 4 | 8>(1);
 	/** Active disturbance force (N). Applied persistently until changed. */
 	let disturbance = $state<-10 | -5 | 0 | 5 | 10>(0);
+	/** Whether debug overlays (in-scene + telemetry panel) are visible. */
+	let showOverlays = $state(true);
 
 	/** Latest controller internals for PID/TF overlay */
 	let latestInternals: Record<string, number> | undefined = $state(undefined);
@@ -236,15 +238,16 @@
 			latestInternals = controllerInternals;
 			chartSamples = recorder.getHistory(CHART_SAMPLES).map((s) => s.error);
 
-			// Build overlay data for auto modes
-			const overlayData: OverlayData | undefined = MODE_CONFIGS[$gameMode].isAutomatic
-				? {
-						setpoint: SETPOINT,
-						error: SETPOINT - newState.physics.y,
-						controlEffort: Math.min(Math.abs(lastControl) / MAX_CONTROL, 1),
-						controllerInternals
-					}
-				: undefined;
+			// Build overlay data for auto modes (suppressed when overlays are hidden)
+			const overlayData: OverlayData | undefined =
+				MODE_CONFIGS[$gameMode].isAutomatic && showOverlays
+					? {
+							setpoint: SETPOINT,
+							error: SETPOINT - newState.physics.y,
+							controlEffort: Math.min(Math.abs(lastControl) / MAX_CONTROL, 1),
+							controllerInternals
+						}
+					: undefined;
 
 			// Render (pass rawWallDt for base scroll animation, unaffected by speed multiplier)
 			if (scene) {
@@ -423,6 +426,18 @@
 					</button>
 				{/each}
 			</div>
+			<!-- Debug overlay toggle -->
+			<button
+				onclick={() => {
+					showOverlays = !showOverlays;
+				}}
+				title={showOverlays ? 'Hide debug overlays' : 'Show debug overlays'}
+				class="rounded border px-2 py-1 text-xs font-semibold {showOverlays
+					? 'bg-purple-600 text-white'
+					: 'bg-white text-gray-700 hover:bg-gray-200'}"
+			>
+				{showOverlays ? 'Overlays ON' : 'Overlays OFF'}
+			</button>
 		{/if}
 
 		{#if !running}
@@ -536,8 +551,8 @@
 		{/if}
 	</p>
 
-	<!-- Telemetry panel: error mini-chart + PID breakdown (auto modes, while running) -->
-	{#if currentMode !== 'manual' && running}
+	<!-- Telemetry panel: error mini-chart + PID breakdown (auto modes, while running, overlays on) -->
+	{#if currentMode !== 'manual' && running && showOverlays}
 		<div class="w-full max-w-2xl rounded-lg border bg-white p-3">
 			<p class="mb-1 text-xs font-semibold tracking-wide text-gray-500 uppercase">
 				Error History (last {CHART_SAMPLES / 60}s)
