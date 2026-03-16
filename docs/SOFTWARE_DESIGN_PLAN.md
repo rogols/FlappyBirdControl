@@ -336,10 +336,43 @@ interface HighScore {
 - `src/routes/game/+page.svelte` — `auto-tf` mode wired to `TFController`; falls back to default params if no analysis-view controller set
 - Unit tests: 38 new (discretization ×21, tf-controller ×17)
 
-## Phase 4 — Visual Evolution + Learning Polish (ongoing)
+## Phase 4 — Visual Evolution + Learning Polish ✅ COMPLETED 2026-03-14
 
 - Texture pass then low-poly pass.
 - Extended overlays, classroom presets, guided scenarios.
+
+**Delivered:**
+
+- `src/lib/persistence/preset-store.ts` — `ControllerPreset` interface; 6 built-in classroom presets (On-Off slow/chattering, PID beginner/tuned/aggressive, TF filtered PD); localStorage-backed user preset CRUD (`savePreset`, `getUserPresets`, `getAllPresets`, `deletePreset`, `findPreset`, `clearUserPresets`, `generatePresetId`)
+- `src/routes/game/+page.svelte` — Speed multiplier selector (1×/2×/4×/8×) for auto modes; telemetry mini-chart (SVG error-history strip, last 3 s); PID component bars (P/I/D/Total visualised as bidirectional bars); On-Off state indicator; TF internals summary; classroom preset selector buttons that hot-swap controller and restart game
+- Unit tests: 28 new (preset-store ×28) — 192 total passing
+
+## Phase 5 — Disturbance Injection + Performance Metrics ✅ COMPLETED 2026-03-16
+
+- Disturbance rejection demo, quantitative controller comparison, recent-run history.
+
+**Delivered:**
+
+- `src/lib/game/engine.ts` — `setDisturbance(d)` / `getDisturbance()` API; `pendingDisturbance` wired into `stepFixed()` replacing the hard-coded `0` placeholder; persists across restarts so students can keep a gust active
+- `src/lib/telemetry/metrics.ts` — `computeMetrics(samples, config?)` computes ISE, IAE, ITAE (trapezoidal rule), peak absolute error, settling time (configurable threshold/window), and total control effort
+- `src/lib/persistence/run-store.ts` — `RunSummary` interface (mode, score, duration, speed, disturbance, metrics, controller snapshot); `saveRun` / `getRuns` / `getRecentRuns` / `deleteRun` / `clearRuns` / `generateRunId`; MAX_RUNS=50 with newest-first ordering
+- `src/routes/game/+page.svelte` — Wind buttons (−10/−5/0/+5/+10 N) hot-applied to live engine; post-run metrics panel in game-over overlay (IAE, ISE, ITAE, peak error, settling time); recent-runs comparison table (last 5 runs) with disturbance column
+- Unit tests: 39 new (metrics ×22, run-store ×17) — 231 total passing
+
+## Phase 6 — Texture Pass (Visual Progression Step 2) ✅ COMPLETED 2026-03-16
+
+- Replace primitive geometry with official Flappy Bird sprites from samuelcust/flappy-bird-assets.
+
+**Delivered:**
+
+- `static/sprites/` — 6 sprites downloaded from `samuelcust/flappy-bird-assets`: `background-day.png`, `base.png`, `pipe-green.png`, `yellowbird-downflap.png`, `yellowbird-midflap.png`, `yellowbird-upflap.png`
+- `src/lib/game/scene-three.ts` — Full rewrite from Phase 0 primitive geometry to textured 2D sprites:
+  - **Background**: `background-day.png` tiled horizontally behind the scene (z=−2)
+  - **Animated bird**: three-frame animation (downflap/midflap/upflap) selected by vertical velocity; tilt angle proportional to velocity (±30°); transparent `PlaneGeometry` sprite
+  - **Pipes**: `pipe-green.png` scaled to required height with `NearestFilter` for pixel-art fidelity; top pipes flip texture vertically via `repeat.y = −vRepeat` so the cap faces the gap; graceful fallback to solid green on texture load failure
+  - **Scrolling base**: `base.png` scrolling at `scrollSpeed` world units/s via texture `offset.x`; `wallDt` (real-time delta, not speed-multiplier-scaled) drives the scroll
+  - `init()` changed to `async` returning `Promise<void>` to await parallel texture loading
+- `src/routes/game/+page.svelte` — `startGame()` made `async`; passes `rawWallDt` to `scene.render()` for accurate base scroll timing at any speed multiplier
 
 ## 11) Risks and Mitigations
 

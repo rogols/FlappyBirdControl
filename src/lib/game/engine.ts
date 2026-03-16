@@ -57,6 +57,8 @@ export class GameEngine {
 	private rng: () => number;
 	private running: boolean;
 	private pendingControl: number;
+	/** Persistent disturbance force applied every step (N). Zero = no disturbance. */
+	private pendingDisturbance: number;
 	/** x position where next obstacle should spawn */
 	private nextObstacleX: number;
 	/** Accumulated real time not yet consumed by fixed-step simulation */
@@ -68,6 +70,7 @@ export class GameEngine {
 		this.state = createInitialState(this.config.seed);
 		this.running = false;
 		this.pendingControl = 0;
+		this.pendingDisturbance = 0;
 		this.nextObstacleX = this.config.obstacleConfig.spawnX;
 		this.accumulator = 0;
 	}
@@ -78,6 +81,7 @@ export class GameEngine {
 		this.state = createInitialState(this.config.seed);
 		this.running = true;
 		this.pendingControl = 0;
+		// Disturbance persists across restarts so students can keep a gust active
 		this.nextObstacleX = this.config.obstacleConfig.spawnX;
 		this.accumulator = 0;
 	}
@@ -90,6 +94,20 @@ export class GameEngine {
 	/** Set the control force to apply on the next tick(s). */
 	setControl(u: number): void {
 		this.pendingControl = u;
+	}
+
+	/**
+	 * Set a constant disturbance force (N) injected into the plant each step.
+	 * Positive values push the bird upward; negative push it downward.
+	 * Set to 0 to disable disturbance.
+	 */
+	setDisturbance(d: number): void {
+		this.pendingDisturbance = d;
+	}
+
+	/** Return the current disturbance force (N). */
+	getDisturbance(): number {
+		return this.pendingDisturbance;
 	}
 
 	/** Get a snapshot of the current world state (read-only copy). */
@@ -144,7 +162,7 @@ export class GameEngine {
 		const newPhysics = stepPhysics(
 			this.state.physics,
 			this.pendingControl,
-			0, // disturbance — future: inject from RNG
+			this.pendingDisturbance,
 			params,
 			dt
 		);
