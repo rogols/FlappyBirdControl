@@ -347,6 +347,18 @@ interface HighScore {
 - `src/routes/game/+page.svelte` — Speed multiplier selector (1×/2×/4×/8×) for auto modes; telemetry mini-chart (SVG error-history strip, last 3 s); PID component bars (P/I/D/Total visualised as bidirectional bars); On-Off state indicator; TF internals summary; classroom preset selector buttons that hot-swap controller and restart game
 - Unit tests: 28 new (preset-store ×28) — 192 total passing
 
+## Phase 5 — Disturbance Injection + Performance Metrics ✅ COMPLETED 2026-03-16
+
+- Disturbance rejection demo, quantitative controller comparison, recent-run history.
+
+**Delivered:**
+
+- `src/lib/game/engine.ts` — `setDisturbance(d)` / `getDisturbance()` API; `pendingDisturbance` wired into `stepFixed()` replacing the hard-coded `0` placeholder; persists across restarts so students can keep a gust active
+- `src/lib/telemetry/metrics.ts` — `computeMetrics(samples, config?)` computes ISE, IAE, ITAE (trapezoidal rule), peak absolute error, settling time (configurable threshold/window), and total control effort
+- `src/lib/persistence/run-store.ts` — `RunSummary` interface (mode, score, duration, speed, disturbance, metrics, controller snapshot); `saveRun` / `getRuns` / `getRecentRuns` / `deleteRun` / `clearRuns` / `generateRunId`; MAX_RUNS=50 with newest-first ordering
+- `src/routes/game/+page.svelte` — Wind buttons (−10/−5/0/+5/+10 N) hot-applied to live engine; post-run metrics panel in game-over overlay (IAE, ISE, ITAE, peak error, settling time); recent-runs comparison table (last 5 runs) with disturbance column
+- Unit tests: 39 new (metrics ×22, run-store ×17) — 231 total passing
+
 ## 11) Risks and Mitigations
 
 - **Numerical instability at high fast-forward factors**

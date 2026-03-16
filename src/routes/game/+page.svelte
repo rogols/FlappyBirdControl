@@ -15,6 +15,10 @@
 	import type { HighScore } from '$lib/persistence/highscore-store';
 	import { getAllPresets } from '$lib/persistence/preset-store';
 	import type { ControllerPreset } from '$lib/persistence/preset-store';
+	import { computeMetrics } from '$lib/telemetry/metrics';
+	import type { PerformanceMetrics } from '$lib/telemetry/metrics';
+	import { saveRun, getRecentRuns, generateRunId } from '$lib/persistence/run-store';
+	import type { RunSummary } from '$lib/persistence/run-store';
 
 	/** Setpoint — target bird height (world units). Midpoint of [0, 10] range. */
 	const SETPOINT = 5.0;
@@ -24,6 +28,8 @@
 	const MAX_CONTROL = 40.0;
 	/** Speed multiplier options (simulation time / wall-clock time) */
 	const SPEED_OPTIONS = [1, 2, 4, 8] as const;
+	/** Disturbance force options (N) */
+	const DISTURBANCE_OPTIONS = [-10, -5, 0, 5, 10] as const;
 	/** Number of telemetry samples shown in the mini-chart */
 	const CHART_SAMPLES = 180;
 
@@ -41,12 +47,20 @@
 	let running = $derived($gameRunning);
 	let currentMode = $derived($gameMode);
 	let speedMultiplier = $state<1 | 2 | 4 | 8>(1);
+	/** Active disturbance force (N). Applied persistently until changed. */
+	let disturbance = $state<-10 | -5 | 0 | 5 | 10>(0);
 
 	/** Latest controller internals for PID/TF overlay */
 	let latestInternals: Record<string, number> | undefined = $state(undefined);
 
 	/** Mini-chart data — last CHART_SAMPLES error values */
 	let chartSamples: number[] = $state([]);
+
+	/** Post-run metrics (shown in game-over overlay) */
+	let lastMetrics: PerformanceMetrics | null = $state(null);
+
+	/** Recent runs (last 5) for the current mode */
+	let recentRuns: RunSummary[] = $state([]);
 
 	/** Run start time (seconds) used to compute durationSec on game-over */
 	let runStartTime: number | null = null;
@@ -62,6 +76,10 @@
 
 	function refreshTopScores(): void {
 		topScores = getHighScores($gameMode).slice(0, 3);
+	}
+
+	function refreshRecentRuns(): void {
+		recentRuns = getRecentRuns(5, $gameMode as RunSummary['mode']);
 	}
 
 	function createControllerForMode(mode: GameMode) {
@@ -134,7 +152,11 @@
 		recorder.clear();
 		chartSamples = [];
 		latestInternals = undefined;
+		lastMetrics = null;
 		runStartTime = null;
+
+		// Apply current disturbance to the new engine
+		engine.setDisturbance(disturbance);
 
 		gameRunning.set(true);
 		alive = true;
@@ -142,6 +164,7 @@
 		lastTimestamp = null;
 
 		refreshTopScores();
+		refreshRecentRuns();
 
 		// Start render/simulation loop
 		if (animFrameId !== null) {
@@ -233,19 +256,43 @@
 				gameRunning.set(false);
 				animFrameId = null;
 
-				// Persist high score
 				const durationSec = runStartTime !== null ? newState.time - runStartTime : newState.time;
+				const timestamp = new Date().toISOString();
+
+				// Compute performance metrics for auto modes
+				const metrics = MODE_CONFIGS[$gameMode].isAutomatic
+					? computeMetrics(recorder.getHistory())
+					: null;
+				lastMetrics = metrics;
+
+				// Persist high score
 				const hs: HighScore = {
 					id: `${Date.now()}-${newState.score}`,
 					mode: $gameMode as HighScore['mode'],
 					score: newState.score,
 					durationSec,
 					speedMultiplier,
-					timestamp: new Date().toISOString(),
+					timestamp,
 					controllerSnapshot: {}
 				};
 				saveHighScore(hs);
+
+				// Persist run summary
+				const run: RunSummary = {
+					id: generateRunId(),
+					mode: $gameMode as RunSummary['mode'],
+					score: newState.score,
+					durationSec,
+					speedMultiplier,
+					timestamp,
+					controllerSnapshot: {},
+					disturbance,
+					metrics
+				};
+				saveRun(run);
+
 				refreshTopScores();
+				refreshRecentRuns();
 				return;
 			}
 		}
@@ -271,11 +318,18 @@
 		const select = event.target as HTMLSelectElement;
 		gameMode.set(select.value as GameMode);
 		refreshTopScores();
+		refreshRecentRuns();
 		// Restart with new mode if currently running
 		if ($gameRunning) {
 			stopGame();
 			startGame();
 		}
+	}
+
+	/** Update the disturbance in the live engine and record the new value. */
+	function setDisturbanceLevel(d: -10 | -5 | 0 | 5 | 10): void {
+		disturbance = d;
+		if (engine) engine.setDisturbance(d);
 	}
 
 	/**
@@ -298,6 +352,7 @@
 	onMount(() => {
 		window.addEventListener('keydown', handleKeyDown);
 		refreshTopScores();
+		refreshRecentRuns();
 	});
 
 	onDestroy(() => {
@@ -345,6 +400,26 @@
 							: 'bg-white text-gray-700 hover:bg-gray-200'} border"
 					>
 						{spd}x
+					</button>
+				{/each}
+			</div>
+
+			<!-- Disturbance force buttons -->
+			<div class="flex items-center gap-1">
+				<span class="text-sm font-medium">Wind:</span>
+				{#each DISTURBANCE_OPTIONS as d (d)}
+					<button
+						onclick={() => setDisturbanceLevel(d)}
+						title={d === 0 ? 'No wind' : d > 0 ? `+${d} N upward gust` : `${d} N downward gust`}
+						class="rounded border px-2 py-1 text-xs font-semibold {disturbance === d
+							? d > 0
+								? 'bg-green-600 text-white'
+								: d < 0
+									? 'bg-orange-600 text-white'
+									: 'bg-gray-600 text-white'
+							: 'bg-white text-gray-700 hover:bg-gray-200'}"
+					>
+						{d > 0 ? `+${d}` : `${d}`}N
 					</button>
 				{/each}
 			</div>
@@ -413,13 +488,32 @@
 		<!-- Game-over overlay -->
 		{#if !running && !alive}
 			<div
-				class="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-lg bg-black/60"
+				class="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-lg bg-black/70 px-6"
 			>
 				<p class="text-3xl font-bold text-white">Game Over</p>
 				<p class="text-xl text-white">Final score: <strong>{score}</strong></p>
+				{#if lastMetrics}
+					<div class="mt-1 grid grid-cols-2 gap-x-6 gap-y-0.5 text-sm text-white/90">
+						<span>IAE</span><span class="font-mono font-semibold">{lastMetrics.iae.toFixed(2)}</span
+						>
+						<span>ISE</span><span class="font-mono font-semibold">{lastMetrics.ise.toFixed(2)}</span
+						>
+						<span>ITAE</span><span class="font-mono font-semibold"
+							>{lastMetrics.itae.toFixed(2)}</span
+						>
+						<span>Peak error</span><span class="font-mono font-semibold"
+							>{lastMetrics.peakError.toFixed(3)} m</span
+						>
+						<span>Settle time</span><span class="font-mono font-semibold"
+							>{lastMetrics.settleTimeSec !== null
+								? lastMetrics.settleTimeSec.toFixed(2) + ' s'
+								: '—'}</span
+						>
+					</div>
+				{/if}
 				<button
 					onclick={startGame}
-					class="rounded bg-green-600 px-6 py-2 font-semibold text-white hover:bg-green-700"
+					class="mt-2 rounded bg-green-600 px-6 py-2 font-semibold text-white hover:bg-green-700"
 				>
 					Play Again
 				</button>
@@ -435,6 +529,10 @@
 		{/if}
 		{#if currentMode !== 'manual' && speedMultiplier > 1}
 			Running at <strong>{speedMultiplier}x</strong> speed.
+		{/if}
+		{#if currentMode !== 'manual' && disturbance !== 0}
+			Wind disturbance: <strong>{disturbance > 0 ? '+' : ''}{disturbance} N</strong>
+			({disturbance > 0 ? 'upward' : 'downward'}).
 		{/if}
 	</p>
 
@@ -558,6 +656,58 @@
 					</li>
 				{/each}
 			</ol>
+		</section>
+	{/if}
+
+	<!-- Recent runs with performance metrics (auto modes only) -->
+	{#if currentMode !== 'manual' && recentRuns.length > 0}
+		<section class="w-full max-w-2xl">
+			<h2 class="mb-2 text-sm font-semibold text-gray-700">
+				Recent runs — {MODE_CONFIGS[currentMode].label}
+			</h2>
+			<div class="overflow-x-auto rounded border">
+				<table class="w-full text-xs">
+					<thead class="bg-gray-100">
+						<tr>
+							<th class="px-2 py-1 text-left font-semibold text-gray-600">Score</th>
+							<th class="px-2 py-1 text-right font-semibold text-gray-600">IAE</th>
+							<th class="px-2 py-1 text-right font-semibold text-gray-600">ISE</th>
+							<th class="px-2 py-1 text-right font-semibold text-gray-600">Peak err</th>
+							<th class="px-2 py-1 text-right font-semibold text-gray-600">Settle</th>
+							<th class="px-2 py-1 text-right font-semibold text-gray-600">Wind</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each recentRuns as run (run.id)}
+							<tr class="border-t odd:bg-white even:bg-gray-50">
+								<td class="px-2 py-1 font-bold">{run.score}</td>
+								<td class="px-2 py-1 text-right font-mono"
+									>{run.metrics ? run.metrics.iae.toFixed(1) : '—'}</td
+								>
+								<td class="px-2 py-1 text-right font-mono"
+									>{run.metrics ? run.metrics.ise.toFixed(1) : '—'}</td
+								>
+								<td class="px-2 py-1 text-right font-mono"
+									>{run.metrics ? run.metrics.peakError.toFixed(2) : '—'}</td
+								>
+								<td class="px-2 py-1 text-right font-mono"
+									>{run.metrics?.settleTimeSec != null
+										? run.metrics.settleTimeSec.toFixed(1) + 's'
+										: '—'}</td
+								>
+								<td
+									class="px-2 py-1 text-right font-mono {run.disturbance !== 0
+										? 'text-orange-600'
+										: 'text-gray-400'}"
+									>{run.disturbance !== 0
+										? (run.disturbance > 0 ? '+' : '') + run.disturbance + 'N'
+										: '0'}</td
+								>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
 		</section>
 	{/if}
 </main>
