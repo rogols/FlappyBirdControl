@@ -359,6 +359,21 @@ interface HighScore {
 - `src/routes/game/+page.svelte` — Wind buttons (−10/−5/0/+5/+10 N) hot-applied to live engine; post-run metrics panel in game-over overlay (IAE, ISE, ITAE, peak error, settling time); recent-runs comparison table (last 5 runs) with disturbance column
 - Unit tests: 39 new (metrics ×22, run-store ×17) — 231 total passing
 
+## Phase 6 — Texture Pass (Visual Progression Step 2) ✅ COMPLETED 2026-03-16
+
+- Replace primitive geometry with official Flappy Bird sprites from samuelcust/flappy-bird-assets.
+
+**Delivered:**
+
+- `static/sprites/` — 6 sprites downloaded from `samuelcust/flappy-bird-assets`: `background-day.png`, `base.png`, `pipe-green.png`, `yellowbird-downflap.png`, `yellowbird-midflap.png`, `yellowbird-upflap.png`
+- `src/lib/game/scene-three.ts` — Full rewrite from Phase 0 primitive geometry to textured 2D sprites:
+  - **Background**: `background-day.png` tiled horizontally behind the scene (z=−2)
+  - **Animated bird**: three-frame animation (downflap/midflap/upflap) selected by vertical velocity; tilt angle proportional to velocity (±30°); transparent `PlaneGeometry` sprite
+  - **Pipes**: `pipe-green.png` scaled to required height with `NearestFilter` for pixel-art fidelity; top pipes flip texture vertically via `repeat.y = −vRepeat` so the cap faces the gap; graceful fallback to solid green on texture load failure
+  - **Scrolling base**: `base.png` scrolling at `scrollSpeed` world units/s via texture `offset.x`; `wallDt` (real-time delta, not speed-multiplier-scaled) drives the scroll
+  - `init()` changed to `async` returning `Promise<void>` to await parallel texture loading
+- `src/routes/game/+page.svelte` — `startGame()` made `async`; passes `rawWallDt` to `scene.render()` for accurate base scroll timing at any speed multiplier
+
 ## 11) Risks and Mitigations
 
 - **Numerical instability at high fast-forward factors**

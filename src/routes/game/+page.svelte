@@ -128,17 +128,17 @@
 		refreshTopScores();
 	}
 
-	function startGame() {
+	async function startGame() {
 		if (!canvas) return;
 
 		// Initialise or reset engine
 		engine = new GameEngine(DEFAULT_GAME_CONFIG);
 		engine.start();
 
-		// Initialise or reset scene
+		// Initialise or reset scene (await texture loading)
 		if (!scene) {
 			scene = new GameScene();
-			scene.init(canvas);
+			await scene.init(canvas);
 		}
 
 		// Set up controller for current mode
@@ -246,9 +246,9 @@
 					}
 				: undefined;
 
-			// Render
+			// Render (pass rawWallDt for base scroll animation, unaffected by speed multiplier)
 			if (scene) {
-				scene.render(newState, newState.obstacles, overlayData);
+				scene.render(newState, newState.obstacles, overlayData, rawWallDt);
 			}
 
 			// Handle game over
