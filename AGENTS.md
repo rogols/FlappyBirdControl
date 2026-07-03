@@ -11,6 +11,19 @@ Tool-specific adapters (e.g. `CLAUDE.md`) reference this file and add only tool-
 
 ---
 
+## Plan of Record
+
+**[`docs/improvement-plan.md`](./docs/improvement-plan.md)** is the current development plan. The roadmap in `docs/SOFTWARE_DESIGN_PLAN.md` is complete (Phases 0–6 delivered) and remains the authoritative _design_ reference only.
+
+To pick up work:
+
+1. Open `docs/improvement-plan.md` Part 2 and follow its "How to use this document" section: take the **lowest-numbered item with `Status: Todo` whose `Depends-on` items are all `Done`**. Skip `Blocked` items — they wait on owner decisions (OQ-x).
+2. Work only within the item's stated Scope; one item = one PR-sized change.
+3. Pass the item's verification gate (always includes `npm run qa` green) before marking it done.
+4. Update the item's Status in `docs/improvement-plan.md` in the same commit that completes it.
+
+---
+
 ## Debugging and Problem-Solving Philosophy
 
 > **Read this before touching any bug or unexpected behaviour.**
@@ -80,12 +93,13 @@ npm run preview          # Preview production build locally
 
 Read these before implementing anything non-trivial:
 
-| File                           | When to read                                       |
-| ------------------------------ | -------------------------------------------------- |
-| `docs/SOFTWARE_DESIGN_PLAN.md` | Before adding any new module, route, or data model |
-| `docs/TEST_GUARDRAILS.md`      | Before writing or modifying tests                  |
-| `docs/DEVELOPMENT_WORKFLOW.md` | Before branching or creating a PR                  |
-| `docs/ONBOARDING.md`           | For local setup and contribution norms             |
+| File                           | When to read                                              |
+| ------------------------------ | --------------------------------------------------------- |
+| `docs/improvement-plan.md`     | **First** — plan of record; pick your next work item here |
+| `docs/SOFTWARE_DESIGN_PLAN.md` | Before adding any new module, route, or data model        |
+| `docs/TEST_GUARDRAILS.md`      | Before writing or modifying tests                         |
+| `docs/DEVELOPMENT_WORKFLOW.md` | Before branching or creating a PR                         |
+| `docs/ONBOARDING.md`           | For local setup and contribution norms                    |
 
 ---
 
@@ -253,6 +267,20 @@ Agents may freely modify files within their assigned module boundary. Cross-modu
 
 ---
 
+## Fragile Areas and Known Issues
+
+Do not build on top of these without accounting for them (see `docs/improvement-plan.md` for the fix items):
+
+- **`src/routes/game/+page.svelte` and `src/routes/analysis/+page.svelte` are oversized** (700–900 lines) and hold game-loop/chart logic inline with no unit coverage. Planned extraction: FBC-101 / FBC-102. Prefer adding logic to `src/lib/` modules, not to these pages.
+- **E2E coverage is minimal** until FBC-005 lands — a green `npm run test:e2e` does not yet prove the critical flows work. Verify UI changes manually or add the missing spec.
+- **Coverage thresholds are not yet machine-enforced** (FBC-003); the targets in §Testing still apply — check them yourself.
+- **`static/sprites/` contains copyrighted Flappy Bird art** (.GEARS Studio). Do not ship it to any public deployment and do not add more third-party assets without a license check (FBC-006 / OQ-4).
+- **`GameEngine.nextObstacleX` is dead state** (written, never read); spawn logic derives from `rightmostX`. Do not build on it (FBC-104 removes it).
+
+**Language:** all UI text, code identifiers, comments, and docs are in **English** — no localized strings inline. If internationalization is ever introduced, it will be via a proper i18n layer decided by the owner first; do not hardcode translations.
+
+---
+
 ## Defect Taxonomy
 
 Use these tags in issues and PR labels:
@@ -281,6 +309,24 @@ Run through this list before every `git commit`:
 - [ ] Analysis and game runtime still share the same physics model
 - [ ] Commit message follows `<type>(<scope>): <summary>` format
 - [ ] PR description includes test evidence and change rationale
+
+---
+
+## Tool-Specific Adapters (Claude Code)
+
+`CLAUDE.md` is a one-line pointer to this file. Claude Code additionally auto-discovers project skills and subagent roles from `.claude/` — these are the Claude Code implementations of the workflows and roles defined below:
+
+| AGENTS.md concept     | Claude Code implementation                       |
+| --------------------- | ------------------------------------------------ |
+| Quality gate workflow | `/qa` → `.claude/skills/qa/SKILL.md`             |
+| Diagnosis workflow    | `/diagnose` → `.claude/skills/diagnose/SKILL.md` |
+| Handoff workflow      | `/handoff` → `.claude/skills/handoff/SKILL.md`   |
+| implementer role      | `.claude/agents/implementer.md`                  |
+| verifier role         | `.claude/agents/verifier.md`                     |
+| math role             | `.claude/agents/math.md`                         |
+| test-writer role      | `.claude/agents/test-writer.md`                  |
+
+When blocked by a bug in Claude Code, invoke `/diagnose` before touching any code (the diagnosis workflow from §Debugging and Problem-Solving Philosophy). Other harnesses follow the workflow definitions below directly.
 
 ---
 
