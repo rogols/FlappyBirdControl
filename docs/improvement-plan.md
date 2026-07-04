@@ -42,29 +42,28 @@ deployment is public — and there is no deployment story (`adapter-auto` with n
 
 ### Product direction
 
-The owner declined the interactive decision round, so every row below is the auditor's
-**recommendation, not a confirmed decision**. Each links to an open question in Part 2;
-confirming or overriding them is the highest-leverage input the owner can give.
+Decisions below were **confirmed by the owner on 2026-07-04** (except where noted).
+One residual tension from those answers is logged as OQ-5 in Part 2.
 
-| Topic           | Direction (proposed)                                                            | Status                 | Ref  |
-| --------------- | ------------------------------------------------------------------------------- | ---------------------- | ---- |
-| Audience        | BSc students in an introductory control course; instructor-driven classroom use | Inferred from docs     | —    |
-| Business model  | Free educational tool; no monetization                                          | Inferred from docs     | —    |
-| Stack           | Keep SvelteKit + TypeScript + Three.js; no migration                            | Confirmed by audit     | —    |
-| Deployment      | Static build (`adapter-static`) deployed to GitHub Pages via CI                 | **Open — recommended** | OQ-1 |
-| Data strategy   | localStorage only; optional CSV/JSON export of runs for lab reports             | **Open — recommended** | OQ-2 |
-| Next capability | Refactor-for-testability first, then pedagogy, then analysis depth, then replay | **Open — recommended** | OQ-3 |
-| Game art        | Replace copyrighted sprites with free/original assets before any public deploy  | **Open — recommended** | OQ-4 |
+| Topic           | Direction (decided)                                                                            | Status               | Ref  |
+| --------------- | ---------------------------------------------------------------------------------------------- | -------------------- | ---- |
+| Audience        | BSc students in an introductory control course; instructor-driven classroom use                | Inferred from docs   | —    |
+| Business model  | Free educational tool; no monetization                                                         | Inferred from docs   | —    |
+| Stack           | Keep SvelteKit + TypeScript + Three.js; no migration                                           | Confirmed by audit   | —    |
+| Deployment      | Static build (`adapter-static`) deployed to GitHub Pages via CI                                | Confirmed 2026-07-04 | OQ-1 |
+| Data strategy   | localStorage only — no backend, no file export (run-export item dropped)                       | Confirmed 2026-07-04 | OQ-2 |
+| Next capability | Pedagogy & curriculum → analysis depth → UX & accessibility; replay tooling deferred           | Confirmed 2026-07-04 | OQ-3 |
+| Game art        | Keep the .GEARS sprites; private classroom use accepted — but see OQ-5 re public Pages hosting | Confirmed 2026-07-04 | OQ-4 |
 
 ### Recommended stack additions
 
-| Addition                               | Why (one line)                                                                                     |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| GitHub Actions workflow                | The only missing piece between "quality gate documented" and "quality gate enforced."              |
-| `@vitest/coverage-v8` + thresholds     | AGENTS.md already mandates coverage floors; this makes them real.                                  |
-| `engines` field + `.nvmrc`             | Pins Node/npm so agents, CI, and humans run the same toolchain.                                    |
-| `@sveltejs/adapter-static`             | The app is fully client-side; static output enables zero-cost GitHub Pages hosting (pending OQ-1). |
-| _Deliberately omitted:_ error tracking | Client-side classroom app with no backend; CI + E2E is the right-sized safety net.                 |
+| Addition                               | Why (one line)                                                                                       |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| GitHub Actions workflow                | The only missing piece between "quality gate documented" and "quality gate enforced."                |
+| `@vitest/coverage-v8` + thresholds     | AGENTS.md already mandates coverage floors; this makes them real.                                    |
+| `engines` field + `.nvmrc`             | Pins Node/npm so agents, CI, and humans run the same toolchain.                                      |
+| `@sveltejs/adapter-static`             | The app is fully client-side; static output enables zero-cost GitHub Pages hosting (OQ-1 confirmed). |
+| _Deliberately omitted:_ error tracking | Client-side classroom app with no backend; CI + E2E is the right-sized safety net.                   |
 
 ### The plan in one paragraph
 
@@ -74,11 +73,14 @@ placeholder E2E test with the four documented critical flows — so the safety n
 before anything moves. Phase 1 pays down the main architectural debt behind that net:
 extract the game-session orchestration and analysis chart builders out of the two
 oversized route pages into testable library modules, then encode the S1–S5 scenario
-catalog as seeded integration tests. Phases 2–4 then add capability in the recommended
-order — pedagogy (guided scenarios, concept explanations, run export), analysis depth
-(stability margins, closed-loop step response, root locus), and replay/comparison tooling
-— with deployment and art-licensing work gated on the owner's answers to the open
-questions.
+catalog as seeded integration tests. Phases 2–4 then add capability in the order the
+owner confirmed — pedagogy (guided scenarios, concept explanations), analysis depth
+(stability margins, closed-loop step response, root locus), and UX & accessibility
+(keyboard/contrast, projector-friendly classroom display). Replay/comparison tooling is
+deferred, run export is dropped (localStorage-only decision), deployment targets GitHub
+Pages, and the copyrighted sprites stay under an accepted private-use constraint — with
+one caveat (OQ-5): a Pages deployment serves those sprites publicly, which the owner
+still needs to reconcile before FBC-007 ships.
 
 ---
 
@@ -99,7 +101,8 @@ questions.
 5. **If you discover new work,** add a new item with the next free ID in the matching
    phase — never renumber or reuse IDs.
 
-Status values: `Todo` · `In progress` · `Blocked` · `Done`.
+Status values: `Todo` · `In progress` · `Blocked` · `Done` · `Deferred` (owner
+deprioritized; do not pick up) · `Dropped` (owner decided against; kept for the record).
 Priority values: `P0` (do first) · `P1` (next) · `P2` (nice to have).
 
 ---
@@ -160,28 +163,36 @@ Priority values: `P0` (do first) · `P1` (next) · `P2` (nice to have).
 - **Acceptance:** All four flows pass headless in CI; flake-free across 3 consecutive
   runs. Gate: `npm run qa`.
 
-#### FBC-006 — Resolve game-art licensing
+#### FBC-006 — Document the game-art licensing constraint
 
-- **Status:** Blocked (OQ-4) · **Priority:** P0 (before any public deploy) · **Depends-on:** OQ-4
+- **Status:** Todo · **Priority:** P1 · **Depends-on:** —
+- **Owner decision (2026-07-04, OQ-4):** keep the .GEARS sprites; private classroom use
+  accepted.
 - **Problem:** `static/sprites/` contains the original copyrighted Flappy Bird sprites
-  (.GEARS Studio, via samuelcust/flappy-bird-assets). Public hosting or a public repo
-  redistributes them.
-- **Scope:** Per owner decision: replace with free/original assets, or document a
-  private-use-only constraint, or revert to the (licensing-clean) primitive renderer,
-  which `scene-three.ts` already retains as a fallback path.
-- **Acceptance:** Owner's decision implemented and recorded here; README notes asset
-  provenance and license. Gate: `npm run qa` + visual check of game view.
+  (.GEARS Studio, via samuelcust/flappy-bird-assets). The accepted risk must be written
+  down so no agent or contributor publishes them unknowingly.
+- **Scope:** Record the constraint in README and AGENTS.md: sprites are copyrighted,
+  private/educational use only, repo must not be made public and no public deployment
+  may serve them until OQ-5 is resolved; note that `scene-three.ts` retains a
+  licensing-clean primitive-geometry fallback.
+- **Acceptance:** Constraint documented in README + AGENTS.md with asset provenance.
+  Gate: `npm run qa`.
 
-#### FBC-007 — Deployment target and adapter
+#### FBC-007 — GitHub Pages deployment via adapter-static
 
-- **Status:** Blocked (OQ-1) · **Priority:** P1 · **Depends-on:** FBC-001, OQ-1
+- **Status:** Blocked (OQ-5) · **Priority:** P1 · **Depends-on:** FBC-001, FBC-006, OQ-5
+- **Owner decision (2026-07-04, OQ-1):** deploy to GitHub Pages.
 - **Problem:** `adapter-auto` has no detected target; there is no way for students to
   reach the app without running a dev server.
-- **Scope (if GitHub Pages confirmed):** switch to `@sveltejs/adapter-static`
-  (+ `paths.base` for project pages), add a Pages deploy job to CI, verify both routes
-  and sprite loading under the base path.
-- **Acceptance:** Public URL serves the app; game and analysis routes work; deploy runs
-  on push to `main`. Gate: `npm run qa` + manual smoke of the deployed URL.
+- **Scope:** Switch to `@sveltejs/adapter-static` (+ `paths.base` for project pages),
+  add a Pages deploy job to CI, verify both routes and sprite loading under the base path.
+- **Caution (OQ-5):** a GitHub Pages site is publicly reachable, so it would serve the
+  copyrighted sprites publicly — beyond the private-use risk accepted in OQ-4. Do not
+  ship this item until the owner resolves OQ-5 (accept public exposure, swap assets, or
+  restrict hosting).
+- **Acceptance:** URL serves the app; game and analysis routes work; deploy runs on push
+  to `main`; OQ-5 resolution recorded here. Gate: `npm run qa` + manual smoke of the
+  deployed URL.
 
 ---
 
@@ -262,13 +273,10 @@ Priority values: `P0` (do first) · `P1` (next) · `P2` (nice to have).
 
 #### FBC-203 — Export run data for lab reports
 
-- **Status:** Blocked (OQ-2) · **Priority:** P2 · **Depends-on:** FBC-101, OQ-2
-- **Problem:** Telemetry and metrics die in localStorage; students cannot cite results
-  in lab reports.
-- **Scope:** CSV and JSON export of a run's time series + metrics + controller snapshot
-  from the run-history panel. Client-side only (Blob download).
-- **Acceptance:** Exported file round-trips (re-importable JSON validates against the
-  `RunSummary` shape); unit tests for serializers. Gate: `npm run qa`.
+- **Status:** Dropped · **Priority:** — · **Depends-on:** —
+- **Owner decision (2026-07-04, OQ-2):** data strategy is localStorage only — no backend
+  and no file export. Kept for the record; do not implement unless the owner reverses
+  the decision here.
 
 ---
 
@@ -308,11 +316,45 @@ Priority values: `P0` (do first) · `P1` (next) · `P2` (nice to have).
 
 ---
 
-### Phase 4 — Replay & comparison tooling
+### Phase 4 — UX & accessibility
+
+Confirmed as the third capability priority (OQ-3, 2026-07-04). Items use the next free
+IDs in the 4xx block; FBC-401/402 below them are the deferred replay items and keep
+their original IDs.
+
+#### FBC-403 — Keyboard and contrast accessibility pass
+
+- **Status:** Todo · **Priority:** P2 · **Depends-on:** FBC-102
+- **Problem:** `docs/TEST_GUARDRAILS.md §7` requires keyboard-first operation and
+  contrast-compliant charts/overlays; neither has ever been audited or tested.
+- **Scope:** Audit both routes for keyboard operability (mode switching, tuning panels,
+  preset buttons, disturbance controls) and chart/overlay contrast; fix findings; add an
+  automated a11y check (e.g. axe assertions in the E2E suite) for the two pages.
+- **Acceptance:** All interactive controls reachable and operable by keyboard; a11y
+  check green in CI; chart palettes meet WCAG AA contrast. Gate: `npm run qa`.
+
+#### FBC-404 — Projector-friendly classroom display and progressive disclosure
+
+- **Status:** Todo · **Priority:** P2 · **Depends-on:** FBC-101, FBC-102
+- **Problem:** The docs call for legibility "in projector conditions" and progressive
+  disclosure to avoid overwhelming students; the current UI shows every control at once
+  at laptop-scale sizing.
+- **Scope:** A classroom display toggle (larger type, higher contrast, simplified HUD)
+  and grouping of advanced controls behind expandable sections; no behaviour change to
+  simulation or controllers.
+- **Acceptance:** Toggle works on both routes; E2E snapshot of classroom mode; default
+  view unchanged. Gate: `npm run qa`.
+
+---
+
+### Deferred — Replay & comparison tooling
+
+Not selected in the owner's 2026-07-04 priority decision (OQ-3). Do not pick these up
+until the owner re-prioritizes them; dependencies are kept accurate for that event.
 
 #### FBC-401 — Deterministic run replay
 
-- **Status:** Todo · **Priority:** P2 · **Depends-on:** FBC-101
+- **Status:** Deferred · **Priority:** P2 · **Depends-on:** FBC-101
 - **Problem:** The design promises "replay capability from seed + controller settings";
   run summaries store the ingredients but nothing replays them.
 - **Scope:** "Replay" action on a run-history entry: reconstruct engine config, seed,
@@ -323,7 +365,7 @@ Priority values: `P0` (do first) · `P1` (next) · `P2` (nice to have).
 
 #### FBC-402 — Side-by-side controller comparison
 
-- **Status:** Todo · **Priority:** P2 · **Depends-on:** FBC-401
+- **Status:** Deferred · **Priority:** P2 · **Depends-on:** FBC-401
 - **Problem:** Comparing controllers currently means playing sequential runs and reading
   a table; the pedagogy wants direct visual comparison under identical disturbances.
 - **Scope:** Run two controller configurations headless over the same seed/scenario and
@@ -355,14 +397,17 @@ graph TD
     subgraph P2["Phase 2 — Pedagogy"]
         FBC201[FBC-201 Guided scenarios]
         FBC202[FBC-202 Concept tooltips]
-        FBC203[FBC-203 Run export]
     end
     subgraph P3["Phase 3 — Analysis depth"]
         FBC301[FBC-301 Margins]
         FBC302[FBC-302 Closed-loop step]
         FBC303[FBC-303 Root locus]
     end
-    subgraph P4["Phase 4 — Replay"]
+    subgraph P4["Phase 4 — UX & accessibility"]
+        FBC403[FBC-403 Keyboard & contrast]
+        FBC404[FBC-404 Classroom display]
+    end
+    subgraph DEF["Deferred (OQ-3)"]
         FBC401[FBC-401 Replay]
         FBC402[FBC-402 Comparison]
     end
@@ -370,38 +415,43 @@ graph TD
     FBC001 --> FBC003
     FBC004 --> FBC005
     FBC001 --> FBC007
-    OQ1([OQ-1]) -.-> FBC007
-    OQ4([OQ-4]) -.-> FBC006
+    FBC006 --> FBC007
+    OQ5([OQ-5]) -.-> FBC007
     FBC005 --> FBC101
     FBC005 --> FBC102
     FBC005 --> FBC202
     FBC101 --> FBC103
     FBC103 --> FBC201
-    FBC101 --> FBC203
-    OQ2([OQ-2]) -.-> FBC203
     FBC102 --> FBC301
     FBC102 --> FBC302
     FBC301 --> FBC303
+    FBC102 --> FBC403
+    FBC101 --> FBC404
+    FBC102 --> FBC404
     FBC101 --> FBC401
     FBC401 --> FBC402
 ```
 
+_(Dropped: FBC-203 run export, per OQ-2.)_
+
 ### Open questions for the owner
 
-These were posed during the audit but not answered; each blocks or shapes the items noted.
-Answering them (edit this section or tell an agent) converts the "proposed" rows in the
-Part 1 direction table into confirmed decisions.
+Answered questions stay here as the decision record; **OQ-5 is the only one still open**.
+Answering it (edit this section or tell an agent) unblocks FBC-007.
 
-- **OQ-1 — Deployment target.** Recommend GitHub Pages via `adapter-static` (app is
-  fully client-side). Alternatives: university-hosted server, or local-only for now.
-  Blocks FBC-007.
-- **OQ-2 — Data strategy.** Recommend staying backend-free (localStorage) and adding
-  CSV/JSON run export for lab reports. Alternative: a lightweight backend for class-wide
-  leaderboards (a significant scope increase). Blocks FBC-203.
-- **OQ-3 — Capability ordering.** Phases 2–4 are ordered pedagogy → analysis depth →
-  replay on the auditor's judgement of classroom value. Reorder freely; dependencies
-  above still apply.
-- **OQ-4 — Game-art licensing.** The bundled Flappy Bird sprites are copyrighted
-  (.GEARS Studio). Recommend replacing them with free/original assets before any public
-  repo or deployment; alternatives: document private-use-only, or revert to the
-  primitive-geometry renderer. Blocks FBC-006 and gates FBC-007 going public.
+- **OQ-1 — Deployment target.** ✅ **Answered 2026-07-04: GitHub Pages** via
+  `adapter-static`. Implemented by FBC-007 (blocked only on OQ-5 below).
+- **OQ-2 — Data strategy.** ✅ **Answered 2026-07-04: localStorage only** — no backend,
+  no file export. FBC-203 dropped accordingly.
+- **OQ-3 — Capability ordering.** ✅ **Answered 2026-07-04: pedagogy & curriculum,
+  analysis depth, and UX & accessibility** (in that phase order). Replay & comparison
+  tooling not selected → FBC-401/402 deferred.
+- **OQ-4 — Game-art licensing.** ✅ **Answered 2026-07-04: keep the sprites; private
+  classroom use accepted.** FBC-006 documents the constraint.
+- **OQ-5 — Public Pages vs. private-use sprites (OPEN).** The OQ-1 and OQ-4 answers
+  conflict: a GitHub Pages site is publicly reachable, so deploying there serves the
+  copyrighted .GEARS sprites to the public — beyond the private-use risk accepted in
+  OQ-4. Options: (a) accept the public exposure explicitly; (b) swap in free/original
+  assets before deploying (reopens the FBC-006 replace path); (c) revert to the
+  primitive-geometry renderer for the deployed build; (d) choose access-restricted
+  hosting instead of Pages. Blocks FBC-007.

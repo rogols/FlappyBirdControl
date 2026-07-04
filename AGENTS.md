@@ -274,7 +274,7 @@ Do not build on top of these without accounting for them (see `docs/improvement-
 - **`src/routes/game/+page.svelte` and `src/routes/analysis/+page.svelte` are oversized** (700–900 lines) and hold game-loop/chart logic inline with no unit coverage. Planned extraction: FBC-101 / FBC-102. Prefer adding logic to `src/lib/` modules, not to these pages.
 - **E2E coverage is minimal** until FBC-005 lands — a green `npm run test:e2e` does not yet prove the critical flows work. Verify UI changes manually or add the missing spec.
 - **Coverage thresholds are not yet machine-enforced** (FBC-003); the targets in §Testing still apply — check them yourself.
-- **`static/sprites/` contains copyrighted Flappy Bird art** (.GEARS Studio). Do not ship it to any public deployment and do not add more third-party assets without a license check (FBC-006 / OQ-4).
+- **`static/sprites/` contains copyrighted Flappy Bird art** (.GEARS Studio). The owner accepts private classroom use (OQ-4, 2026-07-04), but do not ship it to any public deployment until OQ-5 is resolved, and do not add more third-party assets without a license check (FBC-006 / OQ-5).
 - **`GameEngine.nextObstacleX` is dead state** (written, never read); spawn logic derives from `rightmostX`. Do not build on it (FBC-104 removes it).
 
 **Language:** all UI text, code identifiers, comments, and docs are in **English** — no localized strings inline. If internationalization is ever introduced, it will be via a proper i18n layer decided by the owner first; do not hardcode translations.
