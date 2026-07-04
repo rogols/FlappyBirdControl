@@ -45,25 +45,25 @@ deployment is public — and there is no deployment story (`adapter-auto` with n
 Decisions below were **confirmed by the owner on 2026-07-04** (except where noted).
 One residual tension from those answers is logged as OQ-5 in Part 2.
 
-| Topic           | Direction (decided)                                                                            | Status               | Ref  |
-| --------------- | ---------------------------------------------------------------------------------------------- | -------------------- | ---- |
-| Audience        | BSc students in an introductory control course; instructor-driven classroom use                | Inferred from docs   | —    |
-| Business model  | Free educational tool; no monetization                                                         | Inferred from docs   | —    |
-| Stack           | Keep SvelteKit + TypeScript + Three.js; no migration                                           | Confirmed by audit   | —    |
-| Deployment      | Static build (`adapter-static`) deployed to GitHub Pages via CI                                | Confirmed 2026-07-04 | OQ-1 |
-| Data strategy   | localStorage only — no backend, no file export (run-export item dropped)                       | Confirmed 2026-07-04 | OQ-2 |
-| Next capability | Pedagogy & curriculum → analysis depth → UX & accessibility; replay tooling deferred           | Confirmed 2026-07-04 | OQ-3 |
-| Game art        | Keep the .GEARS sprites; private classroom use accepted — but see OQ-5 re public Pages hosting | Confirmed 2026-07-04 | OQ-4 |
+| Topic           | Direction (decided)                                                                                                                       | Status                                  | Ref  |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- | ---- |
+| Audience        | BSc students in an introductory control course; instructor-driven classroom use                                                           | Inferred from docs                      | —    |
+| Business model  | Free educational tool; no monetization                                                                                                    | Inferred from docs                      | —    |
+| Stack           | Keep SvelteKit + TypeScript + Three.js; no migration                                                                                      | Confirmed by audit                      | —    |
+| Deployment      | No hosted deployment. Public GitHub repo; students clone and serve the static build themselves with a Python webserver (current practice) | Confirmed 2026-07-04 (revised same day) | OQ-1 |
+| Data strategy   | localStorage only for now — no backend, no file export; a class leaderboard is possible future scope and would introduce a backend then   | Confirmed 2026-07-04                    | OQ-2 |
+| Next capability | Pedagogy & curriculum → analysis depth → UX & accessibility; replay tooling deferred                                                      | Confirmed 2026-07-04                    | OQ-3 |
+| Game art        | Keep the .GEARS sprites; private classroom use accepted — but see OQ-5 re making the repo public                                          | Confirmed 2026-07-04                    | OQ-4 |
 
 ### Recommended stack additions
 
-| Addition                               | Why (one line)                                                                                       |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| GitHub Actions workflow                | The only missing piece between "quality gate documented" and "quality gate enforced."                |
-| `@vitest/coverage-v8` + thresholds     | AGENTS.md already mandates coverage floors; this makes them real.                                    |
-| `engines` field + `.nvmrc`             | Pins Node/npm so agents, CI, and humans run the same toolchain.                                      |
-| `@sveltejs/adapter-static`             | The app is fully client-side; static output enables zero-cost GitHub Pages hosting (OQ-1 confirmed). |
-| _Deliberately omitted:_ error tracking | Client-side classroom app with no backend; CI + E2E is the right-sized safety net.                   |
+| Addition                               | Why (one line)                                                                                                                    |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| GitHub Actions workflow                | The only missing piece between "quality gate documented" and "quality gate enforced."                                             |
+| `@vitest/coverage-v8` + thresholds     | AGENTS.md already mandates coverage floors; this makes them real.                                                                 |
+| `engines` field + `.nvmrc`             | Pins Node/npm so agents, CI, and humans run the same toolchain.                                                                   |
+| `@sveltejs/adapter-static`             | The app is fully client-side; static output lets students serve it with any plain webserver, e.g. `python -m http.server` (OQ-1). |
+| _Deliberately omitted:_ error tracking | Client-side classroom app with no backend; CI + E2E is the right-sized safety net.                                                |
 
 ### The plan in one paragraph
 
@@ -77,10 +77,12 @@ catalog as seeded integration tests. Phases 2–4 then add capability in the ord
 owner confirmed — pedagogy (guided scenarios, concept explanations), analysis depth
 (stability margins, closed-loop step response, root locus), and UX & accessibility
 (keyboard/contrast, projector-friendly classroom display). Replay/comparison tooling is
-deferred, run export is dropped (localStorage-only decision), deployment targets GitHub
-Pages, and the copyrighted sprites stay under an accepted private-use constraint — with
-one caveat (OQ-5): a Pages deployment serves those sprites publicly, which the owner
-still needs to reconcile before FBC-007 ships.
+deferred and run export is dropped (localStorage-only decision, with a class leaderboard
+as possible future scope). There is no hosted deployment: the static build is served by
+students with their own Python webserver, and the repo is intended to become public —
+which leaves one caveat (OQ-5): the copyrighted sprites accepted for private classroom
+use cannot be redistributed in a public repo, so publication (FBC-008) waits on that
+resolution.
 
 ---
 
@@ -170,29 +172,50 @@ Priority values: `P0` (do first) · `P1` (next) · `P2` (nice to have).
   accepted.
 - **Problem:** `static/sprites/` contains the original copyrighted Flappy Bird sprites
   (.GEARS Studio, via samuelcust/flappy-bird-assets). The accepted risk must be written
-  down so no agent or contributor publishes them unknowingly.
+  down so no agent or contributor publishes them unknowingly — especially since the
+  owner intends the repo to be public (OQ-1 revision), which is exactly the
+  redistribution scenario OQ-5 tracks.
 - **Scope:** Record the constraint in README and AGENTS.md: sprites are copyrighted,
-  private/educational use only, repo must not be made public and no public deployment
-  may serve them until OQ-5 is resolved; note that `scene-three.ts` retains a
+  private/educational use only; do not make the repo public or serve the sprites from
+  any public URL until OQ-5 is resolved; note that `scene-three.ts` retains a
   licensing-clean primitive-geometry fallback.
 - **Acceptance:** Constraint documented in README + AGENTS.md with asset provenance.
   Gate: `npm run qa`.
 
-#### FBC-007 — GitHub Pages deployment via adapter-static
+#### FBC-007 — Static build servable by a plain webserver
 
-- **Status:** Blocked (OQ-5) · **Priority:** P1 · **Depends-on:** FBC-001, FBC-006, OQ-5
-- **Owner decision (2026-07-04, OQ-1):** deploy to GitHub Pages.
-- **Problem:** `adapter-auto` has no detected target; there is no way for students to
-  reach the app without running a dev server.
-- **Scope:** Switch to `@sveltejs/adapter-static` (+ `paths.base` for project pages),
-  add a Pages deploy job to CI, verify both routes and sprite loading under the base path.
-- **Caution (OQ-5):** a GitHub Pages site is publicly reachable, so it would serve the
-  copyrighted sprites publicly — beyond the private-use risk accepted in OQ-4. Do not
-  ship this item until the owner resolves OQ-5 (accept public exposure, swap assets, or
-  restrict hosting).
-- **Acceptance:** URL serves the app; game and analysis routes work; deploy runs on push
-  to `main`; OQ-5 resolution recorded here. Gate: `npm run qa` + manual smoke of the
-  deployed URL.
+- **Status:** Todo · **Priority:** P1 · **Depends-on:** —
+- **Owner decision (2026-07-04, OQ-1 revised):** no hosted deployment. The repo lives on
+  GitHub; students clone it and serve the app themselves with their own webserver — a
+  Python-based webserver, as has been the practice so far.
+- **Problem:** `adapter-auto` has no detected target and its output is not a plain
+  static site, so the current build cannot be served by `python -m http.server`;
+  students are forced through the Node dev server.
+- **Scope:** Switch to `@sveltejs/adapter-static` with full prerendering (both routes
+  emit their own `index.html`; use relative/base-path-safe asset references). Document
+  the student workflow in README and `docs/ONBOARDING.md`:
+  `npm run build`, then `python -m http.server -d build` (or equivalent). Verify game
+  and analysis routes, sprites, and localStorage persistence work when served that way.
+- **Acceptance:** `npm run build` output works fully when served by
+  `python -m http.server` from the build directory (manual smoke: both routes, one
+  auto-mode run, high score persists on reload); workflow documented. Gate:
+  `npm run qa`.
+
+#### FBC-008 — Prepare the repository for public release
+
+- **Status:** Blocked (OQ-5) · **Priority:** P1 · **Depends-on:** FBC-006, OQ-5
+- **Owner decision (2026-07-04, OQ-1 revised):** the code should live in a public repo
+  on the owner's account.
+- **Problem:** Making the repo public redistributes the copyrighted .GEARS sprites to
+  anyone — beyond the private classroom use accepted in OQ-4. OQ-5 must be resolved
+  first (remove/replace the sprites, or the owner explicitly accepts public
+  redistribution).
+- **Scope:** Per the OQ-5 resolution: swap sprites for free/original assets or ship the
+  primitive-geometry renderer as default, audit the repo for anything else unsuitable
+  for publication (no secrets found in the audit; re-check), confirm LICENSE covers the
+  code, then flip visibility.
+- **Acceptance:** OQ-5 resolution recorded here; repo public with no copyrighted assets
+  (or explicit owner sign-off documented). Gate: `npm run qa`.
 
 ---
 
@@ -386,7 +409,8 @@ graph TD
         FBC004[FBC-004 Scaffold cleanup]
         FBC005[FBC-005 Critical E2E flows]
         FBC006[FBC-006 Art licensing]
-        FBC007[FBC-007 Deployment]
+        FBC007[FBC-007 Static build]
+        FBC008[FBC-008 Public release]
     end
     subgraph P1["Phase 1 — Refactor"]
         FBC101[FBC-101 Game session module]
@@ -414,9 +438,8 @@ graph TD
 
     FBC001 --> FBC003
     FBC004 --> FBC005
-    FBC001 --> FBC007
-    FBC006 --> FBC007
-    OQ5([OQ-5]) -.-> FBC007
+    FBC006 --> FBC008
+    OQ5([OQ-5]) -.-> FBC008
     FBC005 --> FBC101
     FBC005 --> FBC102
     FBC005 --> FBC202
@@ -437,21 +460,27 @@ _(Dropped: FBC-203 run export, per OQ-2.)_
 ### Open questions for the owner
 
 Answered questions stay here as the decision record; **OQ-5 is the only one still open**.
-Answering it (edit this section or tell an agent) unblocks FBC-007.
+Answering it (edit this section or tell an agent) unblocks FBC-008.
 
-- **OQ-1 — Deployment target.** ✅ **Answered 2026-07-04: GitHub Pages** via
-  `adapter-static`. Implemented by FBC-007 (blocked only on OQ-5 below).
+- **OQ-1 — Deployment target.** ✅ **Answered 2026-07-04, revised same day: no hosted
+  deployment.** The code lives in a public GitHub repo on the owner's account; students
+  clone it and serve the app with their own webserver — a Python-based webserver, as has
+  been the practice so far. Implemented by FBC-007 (static build + documented
+  `python -m http.server` workflow) and FBC-008 (public release, blocked on OQ-5).
 - **OQ-2 — Data strategy.** ✅ **Answered 2026-07-04: localStorage only** — no backend,
-  no file export. FBC-203 dropped accordingly.
+  no file export; FBC-203 dropped accordingly. The owner noted a **class leaderboard**
+  may be set up later; that would introduce a backend and should enter this backlog as
+  new items when the owner schedules it.
 - **OQ-3 — Capability ordering.** ✅ **Answered 2026-07-04: pedagogy & curriculum,
   analysis depth, and UX & accessibility** (in that phase order). Replay & comparison
   tooling not selected → FBC-401/402 deferred.
 - **OQ-4 — Game-art licensing.** ✅ **Answered 2026-07-04: keep the sprites; private
   classroom use accepted.** FBC-006 documents the constraint.
-- **OQ-5 — Public Pages vs. private-use sprites (OPEN).** The OQ-1 and OQ-4 answers
-  conflict: a GitHub Pages site is publicly reachable, so deploying there serves the
-  copyrighted .GEARS sprites to the public — beyond the private-use risk accepted in
-  OQ-4. Options: (a) accept the public exposure explicitly; (b) swap in free/original
-  assets before deploying (reopens the FBC-006 replace path); (c) revert to the
-  primitive-geometry renderer for the deployed build; (d) choose access-restricted
-  hosting instead of Pages. Blocks FBC-007.
+- **OQ-5 — Public repo vs. private-use sprites (OPEN).** The revised OQ-1 answer (public
+  repo) conflicts with OQ-4 (sprites accepted for private use only): a public repository
+  redistributes the copyrighted .GEARS sprites to anyone, beyond the accepted classroom
+  risk. Options: (a) swap in free/original assets before going public (reopens the
+  FBC-006 replace path); (b) make the primitive-geometry renderer the default and drop
+  the sprites from the repo; (c) the owner explicitly accepts public redistribution
+  risk. Blocks FBC-008 (making the repo public). Local student use (FBC-007) is
+  unaffected.
