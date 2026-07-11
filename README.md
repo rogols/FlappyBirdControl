@@ -13,6 +13,7 @@ Students should be able to:
 
 ## Planning documentation
 
+- [Improvement Plan](docs/improvement-plan.md) — **current plan of record**: audit verdict, phased backlog, open questions
 - [Software Design Plan](docs/SOFTWARE_DESIGN_PLAN.md)
 - [Test Guardrails and Quality Strategy](docs/TEST_GUARDRAILS.md)
 - [Development Workflow and Quality Sprints](docs/DEVELOPMENT_WORKFLOW.md)
