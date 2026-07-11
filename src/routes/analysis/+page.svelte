@@ -1,9 +1,16 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { activeController, gameMode } from '$lib/ui/stores';
-	import { DEFAULT_PHYSICS_PARAMS } from '$lib/analysis/model';
+	import { activeController, gameMode, actuatorMode } from '$lib/ui/stores';
+	import { DEFAULT_PHYSICS_PARAMS, createActuatorModel } from '$lib/analysis/model';
+	import type { ActuatorMode } from '$lib/analysis/model';
 	import { getModelDescription } from '$lib/analysis/model';
 	import { computeStepResponse } from '$lib/analysis/step-response';
+	import { simulateClosedLoop, simulateLinearClosedLoop } from '$lib/analysis/closed-loop';
+	import type { ClosedLoopPoint } from '$lib/analysis/closed-loop';
+	import { computeStepResponseMetrics } from '$lib/telemetry/metrics';
+	import type { StepSegmentMetrics } from '$lib/telemetry/metrics';
+	import type { Controller } from '$lib/control/interfaces';
+	import { GAME_ONOFF_LEVELS } from '$lib/ui/controller-defaults';
 	import {
 		computePlantBode,
 		computeOpenLoopBode,
@@ -57,6 +64,134 @@
 
 	const plantPZ = $derived(computePlantPoleZero(physicsParams));
 	const closedLoopPZ = $derived(computeClosedLoopPoleZero(physicsParams, pidParams));
+
+	// ── Closed-loop step response (theory bridge) ─────────────────────────────
+	/** Which controller drives the closed-loop simulation */
+	let clSource = $state<'pid' | 'onoff' | 'tf'>('pid');
+	/** Actuator interpretation for the nonlinear (game-truth) trace */
+	let clActuatorMode = $state<ActuatorMode>($actuatorMode);
+	/** Signed setpoint step (world units) */
+	let clStepSize = $state(1);
+	const CL_STEP_OPTIONS = [-2, -1, -0.5, 0.5, 1, 2] as const;
+	const CL_STEP_TIME = 1;
+	const CL_DURATION = 8;
+	const CL_INITIAL = 5;
+	const CL_DT = 1 / 60;
+	/**
+	 * Regulation time before the displayed window (s): lets the arcade loop
+	 * converge from its start-up free fall so the trace shows the step
+	 * response, not the start-up transient. The arcade loop's slowest pole has
+	 * a ~8 s time constant, hence the long warm-up.
+	 */
+	const CL_WARMUP = 30;
+	/** Unbounded output limits for the pure-linear reference controller */
+	const CL_UNBOUNDED = 1e9;
+
+	function buildClController(clamped: boolean): Controller | null {
+		const act = createActuatorModel(clActuatorMode);
+		const outputMin = clamped ? act.outputMin : -CL_UNBOUNDED;
+		const outputMax = clamped ? act.outputMax : CL_UNBOUNDED;
+		switch (clSource) {
+			case 'pid':
+				return new PIDController({ ...pidParams, outputMin, outputMax });
+			case 'onoff': {
+				// Relay control is inherently nonlinear — only the game-truth trace exists
+				if (!clamped) return null;
+				const levels = clActuatorMode === 'lab' ? GAME_ONOFF_LEVELS.lab : GAME_ONOFF_LEVELS.arcade;
+				return new OnOffController({
+					...levels,
+					threshold: onoffParams.threshold,
+					hysteresis: onoffParams.hysteresis
+				});
+			}
+			case 'tf':
+				if (!tfInfo.ok) return null;
+				return new TFController({
+					numerator: tfNum,
+					denominator: tfDen,
+					dt: CL_DT,
+					outputMin,
+					outputMax
+				});
+		}
+	}
+
+	const clNonlinear = $derived(
+		((): ClosedLoopPoint[] => {
+			const controller = buildClController(true);
+			if (!controller) return [];
+			return simulateClosedLoop({
+				controller,
+				actuatorMode: clActuatorMode,
+				stepTime: CL_STEP_TIME,
+				initialSetpoint: CL_INITIAL,
+				finalSetpoint: CL_INITIAL + clStepSize,
+				durationSec: CL_DURATION,
+				dt: CL_DT,
+				warmupSec: CL_WARMUP
+			});
+		})()
+	);
+
+	const clLinear = $derived(
+		((): ClosedLoopPoint[] => {
+			const controller = buildClController(false);
+			if (!controller) return [];
+			return simulateLinearClosedLoop({
+				controller,
+				stepTime: CL_STEP_TIME,
+				initialSetpoint: CL_INITIAL,
+				finalSetpoint: CL_INITIAL + clStepSize,
+				durationSec: CL_DURATION,
+				dt: CL_DT
+			});
+		})()
+	);
+
+	function clSegmentMetrics(points: ClosedLoopPoint[]): StepSegmentMetrics | null {
+		if (points.length === 0) return null;
+		const segments = computeStepResponseMetrics(
+			points.map((p) => ({
+				t: p.t,
+				y: p.y,
+				v: p.v,
+				setpoint: p.setpoint,
+				error: p.setpoint - p.y,
+				control: p.u
+			}))
+		);
+		return segments.length > 0 ? segments[0] : null;
+	}
+
+	const clNonlinearMetrics = $derived(clSegmentMetrics(clNonlinear));
+	const clLinearMetrics = $derived(clSegmentMetrics(clLinear));
+
+	const clYRange = $derived(
+		(() => {
+			const ys = [
+				...clNonlinear.map((p) => p.y),
+				...clLinear.map((p) => p.y),
+				CL_INITIAL,
+				CL_INITIAL + clStepSize
+			];
+			const lo = Math.min(...ys) - 0.4;
+			const hi = Math.max(...ys) + 0.4;
+			return { lo, hi };
+		})()
+	);
+
+	function clTracePath(points: ClosedLoopPoint[], value: (p: ClosedLoopPoint) => number): string {
+		return pointsToPath(
+			points.map((p) => ({
+				x: mapX(p.t, 0, CL_DURATION),
+				y: mapY(value(p), clYRange.lo, clYRange.hi)
+			}))
+		);
+	}
+
+	const clNonlinearPath = $derived(clTracePath(clNonlinear, (p) => p.y));
+	const clLinearPath = $derived(clTracePath(clLinear, (p) => p.y));
+	const clSetpointPath = $derived(clTracePath(clNonlinear, (p) => p.setpoint));
 
 	// ── Apply to Auto Mode ────────────────────────────────────────────────────
 	let applyFeedback = $state('');
@@ -495,6 +630,235 @@
 			</div>
 		</section>
 	</div>
+
+	<!-- ── Closed-Loop Step Response (theory bridge) ─────────────────────────── -->
+	<section class="rounded-lg border p-4" data-testid="closed-loop-section">
+		<h2 class="mb-1 font-semibold">Closed-Loop Step Response — theory vs game</h2>
+		<p class="mb-3 text-xs text-gray-500">
+			The <span class="font-semibold text-blue-600">game-truth</span> trace runs your controller
+			through the exact game plant (gravity, drag, actuator saturation). The
+			<span class="font-semibold text-amber-600">textbook</span> trace runs the same controller against
+			the linearised model P(s) = 1/(m·s²) that the Bode and pole-zero views analyse.
+		</p>
+
+		<div class="mb-3 flex flex-wrap items-center gap-4 text-xs">
+			<label class="flex items-center gap-1">
+				Controller:
+				<select bind:value={clSource} class="rounded border bg-white px-2 py-1">
+					<option value="pid">PID (gains above)</option>
+					<option value="onoff">On-Off</option>
+					<option value="tf">Transfer function C(s)</option>
+				</select>
+			</label>
+			<div class="flex items-center gap-1">
+				<span class="font-medium">Actuator:</span>
+				{#each ['arcade', 'lab'] as const as mode (mode)}
+					<button
+						data-testid="cl-actuator-{mode}"
+						onclick={() => (clActuatorMode = mode)}
+						class="rounded border px-2 py-1 font-semibold {clActuatorMode === mode
+							? 'bg-indigo-600 text-white'
+							: 'bg-white text-gray-700 hover:bg-gray-200'}"
+					>
+						{mode === 'arcade' ? 'Arcade' : 'Lab'}
+					</button>
+				{/each}
+			</div>
+			<label class="flex items-center gap-1">
+				Step:
+				<select bind:value={clStepSize} class="rounded border bg-white px-2 py-1">
+					{#each CL_STEP_OPTIONS as s (s)}
+						<option value={s}>{s > 0 ? '+' : ''}{s} m</option>
+					{/each}
+				</select>
+			</label>
+		</div>
+
+		<div class="grid gap-4 lg:grid-cols-2">
+			<svg viewBox="0 0 {SVG_W} {SVG_H}" class="w-full">
+				<line
+					x1={PAD.left}
+					y1={PAD.top}
+					x2={PAD.left}
+					y2={PAD.top + CHART_H}
+					stroke="#9ca3af"
+					stroke-width="1"
+				/>
+				<line
+					x1={PAD.left}
+					y1={PAD.top + CHART_H}
+					x2={PAD.left + CHART_W}
+					y2={PAD.top + CHART_H}
+					stroke="#9ca3af"
+					stroke-width="1"
+				/>
+				{#each [0, 2, 4, 6, 8] as tVal (tVal)}
+					<text
+						x={mapX(tVal, 0, CL_DURATION)}
+						y={PAD.top + CHART_H + 14}
+						text-anchor="middle"
+						font-size="9"
+						fill="#6b7280">{tVal}</text
+					>
+				{/each}
+				{#if clSetpointPath}
+					<path
+						d={clSetpointPath}
+						fill="none"
+						stroke="#ef4444"
+						stroke-width="1"
+						stroke-dasharray="4 3"
+					/>
+				{/if}
+				{#if clLinearPath}
+					<path
+						data-testid="cl-linear-path"
+						d={clLinearPath}
+						fill="none"
+						stroke="#f59e0b"
+						stroke-width="1.5"
+						stroke-dasharray="6 3"
+					/>
+				{/if}
+				{#if clNonlinearPath}
+					<path
+						data-testid="cl-nonlinear-path"
+						d={clNonlinearPath}
+						fill="none"
+						stroke="#3b82f6"
+						stroke-width="1.5"
+					/>
+				{/if}
+				<text
+					x={PAD.left + CHART_W / 2}
+					y={SVG_H - 2}
+					text-anchor="middle"
+					font-size="9"
+					fill="#6b7280">Time (s)</text
+				>
+				<text
+					x={10}
+					y={PAD.top + CHART_H / 2}
+					text-anchor="middle"
+					font-size="9"
+					fill="#6b7280"
+					transform="rotate(-90, 10, {PAD.top + CHART_H / 2})">Position (m)</text
+				>
+			</svg>
+
+			<div class="space-y-2 text-xs">
+				<div class="flex flex-wrap gap-4">
+					<span class="flex items-center gap-1">
+						<span class="inline-block h-0.5 w-4 bg-blue-500"></span> game-truth (nonlinear plant)
+					</span>
+					<span class="flex items-center gap-1">
+						<span class="inline-block h-0.5 w-4 border-t-2 border-dashed border-amber-400"></span>
+						textbook (linear model)
+					</span>
+					<span class="flex items-center gap-1">
+						<span class="inline-block h-0.5 w-4 border-t-2 border-dashed border-red-400"></span>
+						setpoint
+					</span>
+				</div>
+
+				<table class="w-full border text-xs">
+					<thead class="bg-gray-100">
+						<tr>
+							<th class="px-2 py-1 text-left font-semibold text-gray-600">Metric</th>
+							<th class="px-2 py-1 text-right font-semibold text-amber-600">Textbook</th>
+							<th class="px-2 py-1 text-right font-semibold text-blue-600">Game-truth</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr class="border-t">
+							<td class="px-2 py-1">Overshoot</td>
+							<td class="px-2 py-1 text-right font-mono"
+								>{clLinearMetrics?.overshootPercent != null
+									? clLinearMetrics.overshootPercent.toFixed(1) + ' %'
+									: '—'}</td
+							>
+							<td class="px-2 py-1 text-right font-mono"
+								>{clNonlinearMetrics?.overshootPercent != null
+									? clNonlinearMetrics.overshootPercent.toFixed(1) + ' %'
+									: '—'}</td
+							>
+						</tr>
+						<tr class="border-t">
+							<td class="px-2 py-1">Settling time (±10%)</td>
+							<td class="px-2 py-1 text-right font-mono"
+								>{clLinearMetrics?.settleTimeSec != null
+									? clLinearMetrics.settleTimeSec.toFixed(2) + ' s'
+									: '—'}</td
+							>
+							<td class="px-2 py-1 text-right font-mono"
+								>{clNonlinearMetrics?.settleTimeSec != null
+									? clNonlinearMetrics.settleTimeSec.toFixed(2) + ' s'
+									: '—'}</td
+							>
+						</tr>
+						<tr class="border-t">
+							<td class="px-2 py-1">Oscillation half-cycles</td>
+							<td class="px-2 py-1 text-right font-mono"
+								>{clLinearMetrics ? clLinearMetrics.oscillationCount : '—'}</td
+							>
+							<td class="px-2 py-1 text-right font-mono"
+								>{clNonlinearMetrics ? clNonlinearMetrics.oscillationCount : '—'}</td
+							>
+						</tr>
+						<tr class="border-t">
+							<td class="px-2 py-1">Decay ratio</td>
+							<td class="px-2 py-1 text-right font-mono"
+								>{clLinearMetrics?.decayRatio != null
+									? clLinearMetrics.decayRatio.toFixed(3)
+									: '—'}</td
+							>
+							<td class="px-2 py-1 text-right font-mono"
+								>{clNonlinearMetrics?.decayRatio != null
+									? clNonlinearMetrics.decayRatio.toFixed(3)
+									: '—'}</td
+							>
+						</tr>
+					</tbody>
+				</table>
+
+				{#if clSource === 'onoff'}
+					<p class="rounded bg-gray-50 px-2 py-1 text-gray-600">
+						Relay (on-off) control has no linear equivalent — observe the sustained limit cycle in
+						the game-truth trace instead. Hysteresis sets its amplitude and period.
+					</p>
+				{/if}
+			</div>
+		</div>
+
+		<details class="mt-3 rounded border bg-gray-50 px-3 py-2 text-xs text-gray-700">
+			<summary class="cursor-pointer font-semibold">Why the game differs from the textbook</summary>
+			<ul class="mt-2 list-disc space-y-1 pl-5">
+				<li>
+					<strong>One-sided thrust (arcade):</strong> the actuator only pushes up (u ∈ [0, 40] N).
+					Braking an upward move relies on gravity alone, so up- and down-steps respond differently,
+					and the integral term must hold u_eq = m·g ≈ 9.81 N just to hover. The
+					<em>lab</em> actuator removes this by commanding a symmetric deviation u′ around hover.
+				</li>
+				<li>
+					<strong>Actuator saturation:</strong> whenever the commanded force hits a limit the loop leaves
+					the linear regime — large steps or aggressive gains diverge from the textbook trace first.
+				</li>
+				<li>
+					<strong>Quadratic drag:</strong> the game plant includes c_d·v|v|. Its slope at hover (v = 0)
+					is exactly zero, so the linearisation P(s) = 1/(m·s²) is correct — but at speed the drag adds
+					damping the linear model does not know about, slightly reducing overshoot.
+				</li>
+				<li>
+					<strong>Floor and ceiling:</strong> position is clamped to [0, 10] m and the run ends on contact
+					— the linear model has no bounds.
+				</li>
+				<li>
+					<strong>Sampling:</strong> the loop runs at 60 Hz with a filtered derivative; the continuous-time
+					analysis ignores both (negligible at these bandwidths).
+				</li>
+			</ul>
+		</details>
+	</section>
 
 	<!-- ── Bode Plots ──────────────────────────────────────────────────────── -->
 	<section class="rounded-lg border p-4">

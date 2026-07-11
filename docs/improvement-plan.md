@@ -301,6 +301,103 @@ Priority values: `P0` (do first) · `P1` (next) · `P2` (nice to have).
   and no file export. Kept for the record; do not implement unless the owner reverses
   the decision here.
 
+#### FBC-204 — Shared actuator model (arcade / lab)
+
+- **Status:** Done · **Priority:** P1 · **Depends-on:** —
+- **Owner direction (2026-07-11):** make regulator effects (overshoot, oscillation,
+  convergence) clearly visible. Chosen approach: keep Flappy Bird; add a selectable
+  "lab" actuator with symmetric thrust about hover so the closed loop matches the
+  linear analysis model, and bridge the remaining theory gap in the UI (FBC-205…208).
+- **Problem:** The arcade actuator is one-sided (u ∈ [0, 40] N): the controller pushes
+  up, only gravity pulls down. The closed-loop response is asymmetric and never matches
+  the double-integrator model the analysis views assume, so textbook behaviour is
+  invisible in the game.
+- **Scope:** `src/lib/game/actuator.ts` — pure actuator model mapping controller output
+  to plant thrust. Arcade = total thrust in [0, 40] (bit-identical to before); lab =
+  deviation u′ ∈ ±m·g around the exact hover feedforward u_eq = m·g, with plant
+  saturation derived from the same numbers so controller clamp and physics clamp can
+  never disagree. `spawnObstacles` flag on `GameConfig` (lab runs are obstacle-free
+  regulation experiments). Re-exported through `analysis/model.ts`. `physics.ts`
+  untouched — lab mode is pure parameterization.
+- **Acceptance:** Unit tests prove arcade equals historical constants, lab clamps are
+  symmetric and realizable by the one-sided thruster, and `toPlantControl` output always
+  lies within plant limits. Gate: `npm run qa`.
+- **Completed 2026-07-11** — feat(game): add shared actuator model, setpoint schedule,
+  and obstacle-free lab runs.
+
+#### FBC-205 — Deterministic setpoint step schedule
+
+- **Status:** Done · **Priority:** P1 · **Depends-on:** —
+- **Problem:** The setpoint was a hardcoded constant (5.0 m), so a live step response —
+  the single most instructive stimulus — never occurred during play.
+- **Scope:** `src/lib/game/setpoint-schedule.ts` — pure function of simulation time
+  (replay-safe): hold 5.0 m for 3 s, then alternate 5.5 / 4.5 m every 6 s. The 1 m steps
+  keep the default lab PID inside its ±m·g clamp (Kp·|step| = 8 N < 9.81 N), so the
+  response stays essentially linear. Game page offers Constant / Steps sources and
+  ↑/↓ keyboard steps (each press is a step input).
+- **Acceptance:** Unit tests for boundaries, alternation, determinism, and world-bounds
+  containment. Gate: `npm run qa`.
+- **Completed 2026-07-11** — feat(game): add shared actuator model, setpoint schedule,
+  and obstacle-free lab runs.
+
+#### FBC-206 — Per-actuator controller defaults and game-page wiring
+
+- **Status:** Done · **Priority:** P1 · **Depends-on:** FBC-204, FBC-205
+- **Problem:** Controller output clamps were hardcoded to [0, 40] in three places and
+  the game page hardcoded the setpoint and effort normalisation, so an actuator mode
+  could not be introduced consistently.
+- **Scope:** `src/lib/ui/controller-defaults.ts` — controller factory deriving output
+  limits from the actuator model (On-Off becomes symmetric ±6 N in lab mode;
+  `TFController.getParams()` added so an analysis-applied C(s) is rebuilt with matching
+  limits). Game page: Actuator and Setpoint toggles, engine constructed from the
+  actuator's plant params, controller output routed through `toPlantControl`, effort
+  bars normalised by the actuator scale, presets pinned to arcade.
+- **Acceptance:** Unit tests for the factory across both actuator modes; E2E scenario
+  runs a lab step schedule end-to-end. Gate: `npm run qa`.
+- **Completed 2026-07-11** — feat(ui): wire actuator modes, setpoint sources, and
+  step-response reporting into the game view.
+
+#### FBC-207 — Step-response and saturation metrics
+
+- **Status:** Done · **Priority:** P1 · **Depends-on:** FBC-205
+- **Problem:** Telemetry had no overshoot, oscillation, or saturation measures — the
+  quantities a controls course actually grades — so students could not compare what
+  they saw against theory.
+- **Scope:** `metrics.ts`: `computeStepResponseMetrics` (per-step overshoot %,
+  oscillation half-cycles, classic same-side-peak decay ratio, per-step settling time),
+  `summarizeStepMetrics`, `saturationFraction`. Game page: live SATURATED badge +
+  %-time-saturated readout, step metrics in the end-of-run report (crash or Stop),
+  optional `stepMetrics`/`actuatorMode` on `RunSummary` (old localStorage entries stay
+  parseable). Stop now finalizes metrics for auto runs — lab runs have no pipes, so
+  Stop is their natural end.
+- **Acceptance:** Metrics validated against the analytical 2nd-order step response
+  (overshoot and decay ratio for ζ = 0.2 / 0.5 within 1–5%; overdamped → 0%/null).
+  Gate: `npm run qa`.
+- **Completed 2026-07-11** — feat(telemetry): add step-response and saturation metrics.
+
+#### FBC-208 — Closed-loop step response and theory bridge (implements FBC-302)
+
+- **Status:** Done · **Priority:** P1 · **Depends-on:** FBC-204
+- **Problem:** The analysis view only showed the open-loop plant step; nothing showed
+  the effect of the tuned controller, and nowhere explained why the game deviates from
+  the linear analysis.
+- **Scope:** `src/lib/analysis/closed-loop.ts`: `simulateClosedLoop` (exact game path —
+  shared `stepPhysics` + actuator model) and `simulateLinearClosedLoop` (the same
+  double-integrator model Bode/pole-zero analyse). Analysis page: overlaid game-truth /
+  textbook traces with per-trace overshoot, settling, oscillation, and decay-ratio
+  readouts, controller and actuator selectors, and a "Why the game differs from the
+  textbook" explainer. Game page shows a one-line arcade-vs-theory hint. Landed before
+  FBC-102, so chart markup is inline like the existing sections; extraction remains
+  FBC-102 scope.
+- **Acceptance:** Anti-drift contract test — the closed-loop simulation matches a
+  `GameEngine` run step-for-step (|Δy| < 1e-9); linear simulation validated against
+  P-only analytic results (100% overshoot, ωₙ period within 2%); lab-mode default-PID
+  overshoot inside the linear prediction envelope; arcade gravity bias demonstrated
+  (PD steady-state droop = m·g/Kp vs zero in lab; gravity-biased vs centred on-off
+  limit cycle). Gate: `npm run qa`.
+- **Completed 2026-07-11** — feat(analysis): add closed-loop step response with
+  linear-model comparison.
+
 ---
 
 ### Phase 3 — Analysis depth
@@ -318,7 +415,8 @@ Priority values: `P0` (do first) · `P1` (next) · `P2` (nice to have).
 
 #### FBC-302 — Closed-loop step response for all controller types
 
-- **Status:** Todo · **Priority:** P1 · **Depends-on:** FBC-102
+- **Status:** Done (implemented by FBC-208, 2026-07-11 — see Phase 2) · **Priority:**
+  P1 · **Depends-on:** FBC-102
 - **Problem:** The step-response view is open-loop only; students cannot see the effect
   of their tuned controller on the tracking response — the single most instructive plot.
 - **Scope:** Simulate the closed loop (shared physics + active controller) for a
