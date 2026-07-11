@@ -6,6 +6,7 @@
  */
 
 import type { GameMode } from './stores.ts';
+import type { ActuatorMode } from '$lib/game/actuator';
 
 export interface ModeConfig {
 	/** Short display label */
@@ -36,5 +37,32 @@ export const MODE_CONFIGS: Record<GameMode, ModeConfig> = {
 		label: 'Transfer Function',
 		description: 'Custom discrete-time transfer function controller C(z).',
 		isAutomatic: true
+	}
+};
+
+export interface ActuatorConfig {
+	/** Short display label */
+	label: string;
+	/** One-sentence description for UI tooltips */
+	description: string;
+	/** Whether pipe obstacles are spawned in this actuator mode */
+	spawnObstacles: boolean;
+}
+
+export const ACTUATOR_CONFIGS: Record<ActuatorMode, ActuatorConfig> = {
+	arcade: {
+		label: 'Arcade',
+		description:
+			'One-sided thrust (0–40 N): the controller can only push up; gravity pulls down. ' +
+			'The authentic game feel, but the response is asymmetric.',
+		spawnObstacles: true
+	},
+	lab: {
+		label: 'Lab',
+		description:
+			'Symmetric thrust around hover (±9.8 N about m·g): the loop matches the linear ' +
+			'analysis model, so textbook overshoot and oscillation are visible. No pipes — ' +
+			'pure setpoint tracking, scored by control metrics.',
+		spawnObstacles: false
 	}
 };
