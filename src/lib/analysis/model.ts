@@ -15,6 +15,16 @@
 export type { PhysicsParams, PhysicsState } from '$lib/game/physics';
 export { DEFAULT_PHYSICS_PARAMS, stepPhysics, saturateControl } from '$lib/game/physics';
 
+// Re-export the shared actuator model (same single-source-of-truth pattern):
+// analysis views describe the actuator exactly as the game applies it.
+export type { ActuatorMode, ActuatorModel } from '$lib/game/actuator';
+export {
+	createActuatorModel,
+	defaultLabLimit,
+	toPlantControl,
+	controlEffortScale
+} from '$lib/game/actuator';
+
 import { DEFAULT_PHYSICS_PARAMS } from '$lib/game/physics';
 import type { PhysicsParams } from '$lib/game/physics';
 
