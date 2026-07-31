@@ -570,7 +570,7 @@ graph TD
     FBC101 --> FBC103
     FBC103 --> FBC201
     FBC102 --> FBC301
-    FBC102 --> FBC302
+    FBC102 -.superseded.-> FBC302
     FBC301 --> FBC303
     FBC102 --> FBC403
     FBC101 --> FBC404
@@ -589,7 +589,10 @@ graph TD
     class FBC204,FBC205,FBC206,FBC207,FBC208,FBC302 done
 ```
 
-_(✓ = Done. Dropped: FBC-203 run export, per OQ-2.)_
+_(✓ = Done. FBC-302's original dependency on FBC-102 is shown dotted because it was
+superseded: FBC-208 delivered it ahead of the chart-builder extraction, so the new charts
+are inline like the existing ones and extracting them stays FBC-102's job. Dropped:
+FBC-203 run export, per OQ-2.)_
 
 ### Open questions for the owner
 
