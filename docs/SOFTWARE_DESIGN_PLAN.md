@@ -126,6 +126,9 @@ src
 - Setpoint \(r\): desired height trajectory (constant/step/pattern).
 - Error \(e = r - y\).
 - Control output \(u\): flap impulse or thrust equivalent.
+  _Resolved by FBC-204 (2026-07-11): the shared actuator model in `src/lib/game/actuator.ts`
+  defines the two supported interpretations — `arcade` (total one-sided thrust) and `lab`
+  (symmetric deviation \(u'\) about the hover equilibrium \(m·g\))._
 
 ### 4.2 Discrete-Time Update Contract
 

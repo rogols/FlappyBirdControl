@@ -18,9 +18,13 @@ Test strategy priorities:
 Target modules:
 
 - `game/physics.ts`: gravity, flap impulse, collision bounds.
+- `game/actuator.ts`: arcade/lab clamp derivation, feedforward, plant-limit invariant.
+- `game/setpoint-schedule.ts`: step boundaries, alternation, determinism.
 - `control/*`: on-off state transitions, PID term computation, anti-windup, transfer-function execution.
-- `analysis/*`: step response generation, bode data calculation, pole-zero extraction.
-- `telemetry/*`: metric aggregation and trace retention windows.
+- `analysis/*`: step response generation (open- and closed-loop), bode data calculation, pole-zero extraction.
+- `analysis/closed-loop.ts`: anti-drift contract against `GameEngine`; linear-model traces vs analytical results.
+- `telemetry/*`: metric aggregation, step-response characteristics (overshoot, decay ratio, settling), trace retention windows.
+- `ui/controller-defaults.ts`: per-actuator controller construction and output limits.
 
 Coverage expectations (initial target):
 
@@ -35,6 +39,12 @@ Examples:
 - Controller plugged into simulation loop yields expected behavior over fixed seeds.
 - Analysis tuning panel updates the same controller instance consumed by game mode.
 - Fast-forward mode preserves deterministic outcomes relative to baseline.
+  **Regression note (2026-07-11):** the game loop previously ran the controller once per
+  animation frame while the engine sub-stepped beneath it, so the controller's effective
+  sampling period — and therefore closed-loop damping — changed with the speed
+  multiplier. Fixed by stepping controller and plant together at the fixed Δt. The check
+  is not yet automated because the loop still lives in the route page; add it when
+  FBC-101 extracts `session.ts`.
 
 ## 2.3 End-to-End Tests (Playwright, required)
 

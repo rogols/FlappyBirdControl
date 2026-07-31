@@ -7,6 +7,19 @@
 
 **Audit date:** 2026-07-03 · **Audited commit:** `a49e858` · **Owner:** Roger Olsson
 
+### Current status (updated 2026-07-11)
+
+**Done since the audit:** FBC-204…208 — the regulator-visibility work (owner direction
+2026-07-11): a shared actuator model with selectable `arcade` / `lab` modes, a
+deterministic setpoint step schedule, step-response and saturation metrics, and the
+closed-loop step-response view with its theory-vs-game explainer (which also completed
+FBC-302). Part 1's audit verdict below is a snapshot of 2026-07-03 and has **not** been
+re-run; per-item Status fields in Part 2 are authoritative.
+
+**Next item by the selection rule:** FBC-001 (CI pipeline) — the highest-value remaining
+gap, since the quality gate is still enforced only by convention. Phase 0 items FBC-001…
+FBC-005 all remain `Todo`.
+
 ---
 
 ## Part 1 — Executive Summary
@@ -32,9 +45,10 @@ labelled "enforced," but no coverage tooling is installed, so nothing enforces t
 E2E suite is a single placeholder test (asserts an `<h1>` is visible); none of the four
 critical flows named in `docs/TEST_GUARDRAILS.md` are covered, and the S1–S5 scenario
 catalog was never built. The two route pages are the weakest code in the repo:
-`src/routes/analysis/+page.svelte` (892 lines) and `src/routes/game/+page.svelte`
-(728 lines) contain the RAF game loop, controller orchestration, and chart construction
-inline, where unit tests cannot reach them. Documentation had drifted: a stale `Agents.md`
+`src/routes/analysis/+page.svelte` (892 lines at audit; ~1250 after FBC-208) and
+`src/routes/game/+page.svelte` (728 lines at audit; ~1025 after FBC-206) contain the
+game loop, controller orchestration, and chart construction inline, where unit tests
+cannot reach them. Documentation had drifted: a stale `Agents.md`
 contradicted `AGENTS.md` about which file was canonical (fixed in the same commit that
 adds this plan). Finally, `static/sprites/` contains the original copyrighted Flappy Bird
 art (.GEARS Studio) — acceptable for private classroom use, a legal risk if the repo or a
@@ -74,8 +88,9 @@ before anything moves. Phase 1 pays down the main architectural debt behind that
 extract the game-session orchestration and analysis chart builders out of the two
 oversized route pages into testable library modules, then encode the S1–S5 scenario
 catalog as seeded integration tests. Phases 2–4 then add capability in the order the
-owner confirmed — pedagogy (guided scenarios, concept explanations), analysis depth
-(stability margins, closed-loop step response, root locus), and UX & accessibility
+owner confirmed — pedagogy (guided scenarios, concept explanations, and the delivered
+actuator/step-response work of FBC-204…208), analysis depth (stability margins,
+closed-loop step response — delivered by FBC-208 — and root locus), and UX & accessibility
 (keyboard/contrast, projector-friendly classroom display). Replay/comparison tooling is
 deferred and run export is dropped (localStorage-only decision, with a class leaderboard
 as possible future scope). There is no hosted deployment: the static build is served by
@@ -224,9 +239,10 @@ Priority values: `P0` (do first) · `P1` (next) · `P2` (nice to have).
 #### FBC-101 — Extract game-session orchestration from the game route
 
 - **Status:** Todo · **Priority:** P1 · **Depends-on:** FBC-005
-- **Problem:** `src/routes/game/+page.svelte` (728 lines) holds the RAF loop, controller
-  selection/stepping, telemetry wiring, scoring, and run persistence inline — the most
-  behaviour-rich code in the repo with zero unit coverage.
+- **Problem:** `src/routes/game/+page.svelte` (728 lines at audit, ~1025 after FBC-206)
+  holds the fixed-step loop, controller selection/stepping, telemetry wiring, scoring,
+  and run persistence inline — the most behaviour-rich code in the repo with zero unit
+  coverage.
 - **Scope:** Create `src/lib/game/session.ts` (framework-free class/functions) owning:
   controller-for-mode construction, per-tick controller update + engine stepping,
   telemetry recording, game-over bookkeeping (high score + run summary). The Svelte page
@@ -234,13 +250,18 @@ Priority values: `P0` (do first) · `P1` (next) · `P2` (nice to have).
 - **Acceptance:** Page shrinks below ~300 lines; new module has unit tests covering
   mode switching, a seeded auto-mode run, and game-over persistence; E2E flows
   (FBC-005) still green. Gate: `npm run qa` + coverage not reduced.
+- **Carry-over test (from FBC-206):** the extracted loop must be covered by a regression
+  test asserting that the controller's sampling period is the fixed Δt regardless of the
+  speed multiplier — i.e. a 1× and an 8× run of the same duration produce identical
+  trajectories. This defect was fixed in the page but cannot be unit-tested until the
+  loop leaves the Svelte component.
 
 #### FBC-102 — Extract analysis chart building from the analysis route
 
 - **Status:** Todo · **Priority:** P1 · **Depends-on:** FBC-005
-- **Problem:** `src/routes/analysis/+page.svelte` (892 lines) builds SVG chart geometry
-  (step response, Bode, pole-zero) inline; chart math is untestable and duplicated
-  scaling logic is likely.
+- **Problem:** `src/routes/analysis/+page.svelte` (892 lines at audit, ~1250 after
+  FBC-208) builds SVG chart geometry (step response open- and closed-loop, Bode,
+  pole-zero) inline; chart math is untestable and duplicated scaling logic is likely.
 - **Scope:** Move point/path/scale computation into pure functions (e.g.
   `src/lib/analysis/chart-data.ts` or `src/lib/ui/charts.ts`); the page maps their
   output to SVG markup. No visual change.
@@ -519,10 +540,15 @@ graph TD
     subgraph P2["Phase 2 — Pedagogy"]
         FBC201[FBC-201 Guided scenarios]
         FBC202[FBC-202 Concept tooltips]
+        FBC204[FBC-204 Actuator model ✓]
+        FBC205[FBC-205 Setpoint schedule ✓]
+        FBC206[FBC-206 Actuator/setpoint UI ✓]
+        FBC207[FBC-207 Step metrics ✓]
+        FBC208[FBC-208 Closed-loop + bridge ✓]
     end
     subgraph P3["Phase 3 — Analysis depth"]
         FBC301[FBC-301 Margins]
-        FBC302[FBC-302 Closed-loop step]
+        FBC302[FBC-302 Closed-loop step ✓ via FBC-208]
         FBC303[FBC-303 Root locus]
     end
     subgraph P4["Phase 4 — UX & accessibility"]
@@ -551,9 +577,19 @@ graph TD
     FBC102 --> FBC404
     FBC101 --> FBC401
     FBC401 --> FBC402
+
+    FBC204 --> FBC206
+    FBC205 --> FBC206
+    FBC205 --> FBC207
+    FBC206 --> FBC207
+    FBC204 --> FBC208
+    FBC208 -.implements.-> FBC302
+
+    classDef done fill:#dcfce7,stroke:#16a34a,color:#14532d
+    class FBC204,FBC205,FBC206,FBC207,FBC208,FBC302 done
 ```
 
-_(Dropped: FBC-203 run export, per OQ-2.)_
+_(✓ = Done. Dropped: FBC-203 run export, per OQ-2.)_
 
 ### Open questions for the owner
 

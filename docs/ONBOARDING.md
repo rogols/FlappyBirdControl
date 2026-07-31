@@ -6,9 +6,37 @@ Flappy Bird Control Lab is a teaching-oriented web app where control theory conc
 
 Read first:
 
-1. `docs/SOFTWARE_DESIGN_PLAN.md`
-2. `docs/TEST_GUARDRAILS.md`
-3. `docs/DEVELOPMENT_WORKFLOW.md`
+1. `docs/improvement-plan.md` — **plan of record**; pick your next work item here
+2. `docs/SOFTWARE_DESIGN_PLAN.md` — design reference (its roadmap is fully delivered)
+3. `docs/TEST_GUARDRAILS.md`
+4. `docs/DEVELOPMENT_WORKFLOW.md`
+
+### Domain concepts you need before touching the loop
+
+- **Plant.** The bird's vertical dynamics: `m·v̇ = u − m·g − c_d·v|v| + d(t)`, integrated
+  at a fixed Δt = 1/60 s in `src/lib/game/physics.ts`. This file is the single source of
+  truth shared by the game runtime and the analysis views — never duplicate it.
+- **Actuator modes** (`src/lib/game/actuator.ts`) decide what a controller's output
+  _means_ before it reaches the plant:
+  - `arcade` — the output is total thrust, clamped to `[0, 40] N`. One-sided: the
+    controller pushes up, only gravity pulls down. Authentic game feel, but the loop does
+    not match the linear analysis model (a PD controller droops by `m·g/Kp` at steady
+    state, because the controller itself must produce the hover force).
+  - `lab` — the output is a _deviation_ `u′` about the exact hover equilibrium, so the
+    plant receives `u = m·g + u′` with `u′ ∈ ±m·g`. The loop is then precisely the double
+    integrator `P(s) = 1/(m·s²)` that the Bode and pole-zero views analyse, and textbook
+    overshoot/oscillation become visible. Lab runs spawn no obstacles.
+
+  Both modes derive the controller clamp _and_ the plant saturation from the same
+  numbers, so they can never disagree. Add new actuator behaviour here, not in the pages.
+
+- **Setpoint schedule** (`src/lib/game/setpoint-schedule.ts`) is a pure function of
+  simulation time, so a run is fully reproducible from seed + schedule + controller.
+- **Theory bridge.** `src/lib/analysis/closed-loop.ts` simulates the loop twice — once
+  through the real game path, once through the linearised model — so the difference
+  between what theory predicts and what the game shows is explicit rather than confusing.
+  A contract test pins the first simulation to `GameEngine` step-for-step; keep it green,
+  it is what stops the analysis views from drifting away from the runtime.
 
 ## 2) Local Setup
 
