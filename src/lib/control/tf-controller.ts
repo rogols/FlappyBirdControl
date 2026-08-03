@@ -163,6 +163,19 @@ export class TFController implements Controller {
 	}
 
 	/**
+	 * Return a copy of the continuous-time parameters this controller was
+	 * built from. Used to re-instantiate the same C(s) with different output
+	 * limits (e.g. when the actuator mode changes).
+	 */
+	getParams(): TFControllerParams {
+		return {
+			...this.params,
+			numerator: [...this.params.numerator],
+			denominator: [...this.params.denominator]
+		};
+	}
+
+	/**
 	 * Return the normalized discrete-time coefficients used at runtime.
 	 * Useful for display in the analysis view.
 	 */

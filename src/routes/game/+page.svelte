@@ -4,40 +4,54 @@
 	import { GameEngine, DEFAULT_GAME_CONFIG } from '$lib/game/engine';
 	import { GameScene } from '$lib/game/scene-three';
 	import type { OverlayData } from '$lib/game/scene-three';
-	import { gameMode, gameRunning, activeController } from '$lib/ui/stores';
-	import { MODE_CONFIGS } from '$lib/ui/mode-config';
+	import { gameMode, gameRunning, activeController, actuatorMode } from '$lib/ui/stores';
+	import { MODE_CONFIGS, ACTUATOR_CONFIGS } from '$lib/ui/mode-config';
+	import { createControllerForMode } from '$lib/ui/controller-defaults';
 	import { OnOffController } from '$lib/control/onoff-controller';
 	import { PIDController } from '$lib/control/pid-controller';
-	import { TFController, DEFAULT_TF_PARAMS } from '$lib/control/tf-controller';
+	import { TFController } from '$lib/control/tf-controller';
 	import type { GameMode } from '$lib/ui/stores';
+	import { createActuatorModel, toPlantControl, controlEffortScale } from '$lib/game/actuator';
+	import type { ActuatorMode, ActuatorModel } from '$lib/game/actuator';
+	import { setpointAt, DEFAULT_SETPOINT_SCHEDULE } from '$lib/game/setpoint-schedule';
+	import type { SetpointScheduleConfig } from '$lib/game/setpoint-schedule';
 	import { TelemetryRecorder } from '$lib/telemetry/recorder';
 	import { saveHighScore, getHighScores } from '$lib/persistence/highscore-store';
 	import type { HighScore } from '$lib/persistence/highscore-store';
 	import { getAllPresets } from '$lib/persistence/preset-store';
 	import type { ControllerPreset } from '$lib/persistence/preset-store';
-	import { computeMetrics } from '$lib/telemetry/metrics';
-	import type { PerformanceMetrics } from '$lib/telemetry/metrics';
+	import {
+		computeMetrics,
+		computeStepResponseMetrics,
+		summarizeStepMetrics,
+		saturationFraction
+	} from '$lib/telemetry/metrics';
+	import type { PerformanceMetrics, StepMetricsSummary } from '$lib/telemetry/metrics';
 	import { saveRun, getRecentRuns, generateRunId } from '$lib/persistence/run-store';
 	import type { RunSummary } from '$lib/persistence/run-store';
+	import type { WorldState } from '$lib/game/state';
 
-	/** Setpoint — target bird height (world units). Midpoint of [0, 10] range. */
-	const SETPOINT = 5.0;
 	/** Flap impulse force applied in manual mode (N) */
 	const FLAP_FORCE = 25.0;
-	/** Max control force used to normalise the effort bar (N) */
-	const MAX_CONTROL = 40.0;
+	/** Setpoint bounds for the arrow-key step commands (world units) */
+	const SETPOINT_KEY_MIN = 2.0;
+	const SETPOINT_KEY_MAX = 8.0;
 	/** Speed multiplier options (simulation time / wall-clock time) */
 	const SPEED_OPTIONS = [1, 2, 4, 8] as const;
 	/** Disturbance force options (N) */
 	const DISTURBANCE_OPTIONS = [-10, -5, 0, 5, 10] as const;
 	/** Number of telemetry samples shown in the mini-chart */
 	const CHART_SAMPLES = 180;
+	/** Cap on simulation time consumed per animation frame (s of sim time) */
+	const MAX_FRAME_SIM_TIME = 0.5;
 
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let engine: GameEngine | null = null;
 	let scene: GameScene | null = null;
 	let animFrameId: number | null = null;
 	let lastTimestamp: number | null = null;
+	/** Sim time accumulated from frames but not yet consumed in fixed steps (s) */
+	let frameAccumulator = 0;
 
 	/** Telemetry ring buffer — 1200 samples ≈ 20 s at 60 Hz */
 	const recorder = new TelemetryRecorder(1200);
@@ -46,11 +60,35 @@
 	let alive = $state(true);
 	let running = $derived($gameRunning);
 	let currentMode = $derived($gameMode);
+	let isAutomatic = $derived(MODE_CONFIGS[currentMode].isAutomatic);
+	let currentActuator = $derived($actuatorMode);
 	let speedMultiplier = $state<1 | 2 | 4 | 8>(1);
 	/** Active disturbance force (N). Applied persistently until changed. */
 	let disturbance = $state<-10 | -5 | 0 | 5 | 10>(0);
 	/** Whether debug overlays (in-scene + telemetry panel) are visible. */
 	let showOverlays = $state(true);
+
+	/** Where the reference comes from: a constant level or the step schedule */
+	let setpointSource = $state<'constant' | 'steps'>('steps');
+	/** Level used by the constant source; adjustable with the arrow keys */
+	let constantLevel = $state(DEFAULT_SETPOINT_SCHEDULE.baseLevel);
+	/** Latest reference value, for display */
+	let currentSetpoint = $state(DEFAULT_SETPOINT_SCHEDULE.baseLevel);
+
+	/**
+	 * Actuator model in effect for the current run. Manual mode always plays
+	 * the authentic arcade actuator; the lab interpretation only applies to
+	 * automatic controllers.
+	 */
+	let runActuator: ActuatorModel = createActuatorModel('arcade');
+
+	/** Normalisation scale for effort bars — follows the run's actuator */
+	let runEffortScale = $state(40);
+
+	/** Whether the controller output is pinned at an actuator limit right now */
+	let saturatedNow = $state(false);
+	/** Percentage of the charted window spent at an actuator limit */
+	let saturationPercent = $state(0);
 
 	/** Latest controller internals for PID/TF overlay */
 	let latestInternals: Record<string, number> | undefined = $state(undefined);
@@ -60,6 +98,12 @@
 
 	/** Post-run metrics (shown in game-over overlay) */
 	let lastMetrics: PerformanceMetrics | null = $state(null);
+
+	/** Step-response summary of the finished run (null when no steps occurred) */
+	let lastStepMetrics: StepMetricsSummary | null = $state(null);
+
+	/** How the last run ended — selects the end-of-run overlay */
+	let runEnded = $state<'crashed' | 'stopped' | null>(null);
 
 	/** Recent runs (last 5) for the current mode */
 	let recentRuns: RunSummary[] = $state([]);
@@ -84,22 +128,12 @@
 		recentRuns = getRecentRuns(5, $gameMode as RunSummary['mode']);
 	}
 
-	function createControllerForMode(mode: GameMode) {
-		switch (mode) {
-			case 'auto-onoff':
-				return new OnOffController({ highOutput: 30, lowOutput: 0, threshold: 0, hysteresis: 0.3 });
-			case 'auto-pid':
-				return new PIDController({ kp: 8, ki: 1, kd: 2, outputMin: 0, outputMax: 40 });
-			case 'auto-tf': {
-				// Use controller already set from analysis view if present, otherwise default
-				const existing = $activeController;
-				if (existing instanceof TFController) return existing;
-				const ctrl = new TFController({ ...DEFAULT_TF_PARAMS });
-				return ctrl;
-			}
-			default:
-				return null;
+	/** Build the schedule config for the currently selected setpoint source. */
+	function currentScheduleConfig(): SetpointScheduleConfig {
+		if (setpointSource === 'steps') {
+			return DEFAULT_SETPOINT_SCHEDULE;
 		}
+		return { ...DEFAULT_SETPOINT_SCHEDULE, kind: 'constant', baseLevel: constantLevel };
 	}
 
 	/** Apply a preset — creates a new controller from preset params and updates stores */
@@ -117,6 +151,8 @@
 
 		if (!ctrl) return;
 
+		// Presets carry arcade output limits — switch the actuator to match
+		actuatorMode.set('arcade');
 		gameMode.set(cfg.mode);
 		activeController.set(ctrl);
 		ctrl.reset();
@@ -133,8 +169,20 @@
 	async function startGame() {
 		if (!canvas) return;
 
-		// Initialise or reset engine
-		engine = new GameEngine(DEFAULT_GAME_CONFIG);
+		// Manual mode always plays the authentic arcade actuator
+		const effectiveActuatorMode: ActuatorMode = MODE_CONFIGS[$gameMode].isAutomatic
+			? $actuatorMode
+			: 'arcade';
+		runActuator = createActuatorModel(effectiveActuatorMode);
+		runEffortScale = controlEffortScale(runActuator);
+
+		// Initialise or reset engine with the actuator's plant limits;
+		// lab mode is a pure regulation experiment without pipes
+		engine = new GameEngine({
+			...DEFAULT_GAME_CONFIG,
+			physicsParams: runActuator.physicsParams,
+			spawnObstacles: ACTUATOR_CONFIGS[effectiveActuatorMode].spawnObstacles
+		});
 		engine.start();
 
 		// Initialise or reset scene (await texture loading)
@@ -143,8 +191,8 @@
 			await scene.init(canvas);
 		}
 
-		// Set up controller for current mode
-		const controller = createControllerForMode($gameMode);
+		// Set up controller for current mode, clamped to the actuator's range
+		const controller = createControllerForMode($gameMode, runActuator, $activeController);
 		activeController.set(controller);
 		if (controller) {
 			controller.reset();
@@ -155,6 +203,11 @@
 		chartSamples = [];
 		latestInternals = undefined;
 		lastMetrics = null;
+		lastStepMetrics = null;
+		runEnded = null;
+		saturatedNow = false;
+		saturationPercent = 0;
+		currentSetpoint = setpointAt(currentScheduleConfig(), 0);
 		runStartTime = null;
 
 		// Apply current disturbance to the new engine
@@ -164,6 +217,7 @@
 		alive = true;
 		score = 0;
 		lastTimestamp = null;
+		frameAccumulator = 0;
 
 		refreshTopScores();
 		refreshRecentRuns();
@@ -184,6 +238,68 @@
 		}
 	}
 
+	/**
+	 * Compute end-of-run metrics and persist the run summary.
+	 * Called on game over (crash) and when the user stops an auto run —
+	 * lab-mode regulation runs have no pipes, so Stop is their natural end.
+	 */
+	function finalizeRun(state: WorldState, ended: 'crashed' | 'stopped'): void {
+		runEnded = ended;
+
+		const durationSec = runStartTime !== null ? state.time - runStartTime : state.time;
+		const timestamp = new Date().toISOString();
+		const history = recorder.getHistory();
+
+		const metrics = MODE_CONFIGS[$gameMode].isAutomatic ? computeMetrics(history) : null;
+		lastMetrics = metrics;
+
+		const stepSegments = MODE_CONFIGS[$gameMode].isAutomatic
+			? computeStepResponseMetrics(history)
+			: [];
+		lastStepMetrics = stepSegments.length > 0 ? summarizeStepMetrics(stepSegments) : null;
+
+		// High scores only make sense for completed (crashed) pipe runs
+		if (ended === 'crashed') {
+			const hs: HighScore = {
+				id: `${Date.now()}-${state.score}`,
+				mode: $gameMode as HighScore['mode'],
+				score: state.score,
+				durationSec,
+				speedMultiplier,
+				timestamp,
+				controllerSnapshot: {}
+			};
+			saveHighScore(hs);
+		}
+
+		const run: RunSummary = {
+			id: generateRunId(),
+			mode: $gameMode as RunSummary['mode'],
+			score: state.score,
+			durationSec,
+			speedMultiplier,
+			timestamp,
+			controllerSnapshot: {},
+			disturbance,
+			metrics,
+			actuatorMode: runActuator.mode,
+			stepMetrics: lastStepMetrics
+		};
+		saveRun(run);
+
+		refreshTopScores();
+		refreshRecentRuns();
+	}
+
+	/** User-initiated stop: end the run and report its metrics. */
+	function handleStopClick(): void {
+		const state = engine?.getState();
+		stopGame();
+		if (state && MODE_CONFIGS[$gameMode].isAutomatic && recorder.getHistory().length > 1) {
+			finalizeRun(state, 'stopped');
+		}
+	}
+
 	function loop(timestamp: number) {
 		if (!$gameRunning) return;
 
@@ -194,57 +310,94 @@
 		const wallDt = rawWallDt * speedMultiplier;
 
 		if (engine && wallDt > 0) {
-			const state = engine.getState();
-
 			// Track run start time for duration calculation
 			if (runStartTime === null) {
-				runStartTime = state.time;
+				runStartTime = engine.getState().time;
 			}
 
-			// In auto mode: run controller and feed output to engine
+			const auto = MODE_CONFIGS[$gameMode].isAutomatic;
+			const controller = $activeController;
+			const dt = DEFAULT_GAME_CONFIG.fixedDt;
+
+			// Advance the simulation in fixed steps and run the controller once
+			// per step, so its sampling period is the declared 1/60 s regardless
+			// of speed multiplier or display refresh rate. The accumulator is
+			// capped so a stalled tab cannot trigger a catch-up spiral.
+			frameAccumulator = Math.min(frameAccumulator + wallDt, MAX_FRAME_SIM_TIME);
+
 			let lastControl = 0;
 			let controllerInternals: Record<string, number> | undefined;
-			const controller = $activeController;
-			if (controller && MODE_CONFIGS[$gameMode].isAutomatic) {
-				const result = controller.update({
-					t: state.time,
-					dt: DEFAULT_GAME_CONFIG.fixedDt,
-					setpoint: SETPOINT,
-					measurement: state.physics.y
-				});
-				lastControl = result.control;
-				controllerInternals = result.internals;
-				engine.setControl(lastControl);
-			}
+			let setpoint = currentSetpoint;
+			let steppedThisFrame = false;
 
-			// Advance simulation
-			engine.tick(wallDt);
+			while (frameAccumulator >= dt) {
+				frameAccumulator -= dt;
+				steppedThisFrame = true;
+
+				const state = engine.getState();
+				// Manual mode keeps a fixed mid-height reference for telemetry;
+				// auto modes follow the selected schedule
+				setpoint = auto
+					? setpointAt(currentScheduleConfig(), state.time)
+					: DEFAULT_SETPOINT_SCHEDULE.baseLevel;
+
+				if (controller && auto) {
+					const result = controller.update({
+						t: state.time,
+						dt,
+						setpoint,
+						measurement: state.physics.y
+					});
+					lastControl = result.control;
+					controllerInternals = result.internals;
+					engine.setControl(toPlantControl(runActuator, lastControl));
+				}
+
+				engine.tick(dt);
+
+				const stepped = engine.getState();
+				recorder.record({
+					t: stepped.time,
+					y: stepped.physics.y,
+					v: stepped.physics.v,
+					setpoint,
+					error: setpoint - stepped.physics.y,
+					control: lastControl
+				});
+
+				if (!stepped.alive) break;
+			}
 
 			const newState = engine.getState();
 			score = newState.score;
 			alive = newState.alive;
 
-			// Record telemetry sample for this frame
-			recorder.record({
-				t: newState.time,
-				y: newState.physics.y,
-				v: newState.physics.v,
-				setpoint: SETPOINT,
-				error: SETPOINT - newState.physics.y,
-				control: lastControl
-			});
+			if (steppedThisFrame) {
+				currentSetpoint = setpoint;
+				// Update mini-chart and internals for overlay panel
+				latestInternals = controllerInternals;
+				const recentSamples = recorder.getHistory(CHART_SAMPLES);
+				chartSamples = recentSamples.map((s) => s.error);
 
-			// Update mini-chart and internals for overlay panel
-			latestInternals = controllerInternals;
-			chartSamples = recorder.getHistory(CHART_SAMPLES).map((s) => s.error);
+				// Saturation monitoring: is the controller asking for more than
+				// the actuator can deliver? (Only meaningful in auto modes.)
+				if (auto) {
+					const limitTolerance = 1e-6 * (runActuator.outputMax - runActuator.outputMin);
+					saturatedNow =
+						lastControl <= runActuator.outputMin + limitTolerance ||
+						lastControl >= runActuator.outputMax - limitTolerance;
+					saturationPercent =
+						100 * saturationFraction(recentSamples, runActuator.outputMin, runActuator.outputMax);
+				}
+			}
 
 			// Build overlay data for auto modes (suppressed when overlays are hidden)
 			const overlayData: OverlayData | undefined =
-				MODE_CONFIGS[$gameMode].isAutomatic && showOverlays
+				auto && showOverlays
 					? {
-							setpoint: SETPOINT,
-							error: SETPOINT - newState.physics.y,
-							controlEffort: Math.min(Math.abs(lastControl) / MAX_CONTROL, 1),
+							setpoint,
+							error: setpoint - newState.physics.y,
+							controlEffort: Math.min(Math.abs(lastControl) / controlEffortScale(runActuator), 1),
 							controllerInternals
 						}
 					: undefined;
@@ -258,44 +411,7 @@
 			if (!newState.alive) {
 				gameRunning.set(false);
 				animFrameId = null;
-
-				const durationSec = runStartTime !== null ? newState.time - runStartTime : newState.time;
-				const timestamp = new Date().toISOString();
-
-				// Compute performance metrics for auto modes
-				const metrics = MODE_CONFIGS[$gameMode].isAutomatic
-					? computeMetrics(recorder.getHistory())
-					: null;
-				lastMetrics = metrics;
-
-				// Persist high score
-				const hs: HighScore = {
-					id: `${Date.now()}-${newState.score}`,
-					mode: $gameMode as HighScore['mode'],
-					score: newState.score,
-					durationSec,
-					speedMultiplier,
-					timestamp,
-					controllerSnapshot: {}
-				};
-				saveHighScore(hs);
-
-				// Persist run summary
-				const run: RunSummary = {
-					id: generateRunId(),
-					mode: $gameMode as RunSummary['mode'],
-					score: newState.score,
-					durationSec,
-					speedMultiplier,
-					timestamp,
-					controllerSnapshot: {},
-					disturbance,
-					metrics
-				};
-				saveRun(run);
-
-				refreshTopScores();
-				refreshRecentRuns();
+				finalizeRun(newState, 'crashed');
 				return;
 			}
 		}
@@ -314,7 +430,43 @@
 					if (engine) engine.setControl(0);
 				});
 			}
+			return;
 		}
+
+		// Arrow keys command manual setpoint steps in auto modes: each press is
+		// a live step input whose response plays out on screen
+		if (event.code === 'ArrowUp' || event.code === 'ArrowDown') {
+			if (MODE_CONFIGS[$gameMode].isAutomatic && $gameRunning) {
+				event.preventDefault();
+				const delta = event.code === 'ArrowUp' ? 1 : -1;
+				const base = setpointSource === 'steps' ? currentSetpoint : constantLevel;
+				constantLevel = Math.min(
+					SETPOINT_KEY_MAX,
+					Math.max(SETPOINT_KEY_MIN, Math.round(base) + delta)
+				);
+				setpointSource = 'constant';
+			}
+		}
+	}
+
+	/** Switch actuator mode; restarts the run because the plant limits change. */
+	function setActuatorMode(mode: ActuatorMode): void {
+		if ($actuatorMode === mode) return;
+		actuatorMode.set(mode);
+		if ($gameRunning) {
+			stopGame();
+			startGame();
+		}
+	}
+
+	/** Switch the setpoint source. Takes effect immediately — no restart needed. */
+	function setSetpointSource(source: 'constant' | 'steps'): void {
+		if (setpointSource === source) return;
+		if (source === 'constant') {
+			// Continue from the level the schedule is currently commanding
+			constantLevel = Math.round(currentSetpoint * 2) / 2;
+		}
+		setpointSource = source;
 	}
 
 	function handleModeChange(event: Event) {
@@ -356,10 +508,14 @@
 		window.addEventListener('keydown', handleKeyDown);
 		refreshTopScores();
 		refreshRecentRuns();
+		// onMount cleanup never runs during SSR, unlike onDestroy — the window
+		// listener must be removed here or server rendering crashes
+		return () => {
+			window.removeEventListener('keydown', handleKeyDown);
+		};
 	});
 
 	onDestroy(() => {
-		window.removeEventListener('keydown', handleKeyDown);
 		stopGame();
 		if (scene) {
 			scene.dispose();
@@ -369,6 +525,22 @@
 </script>
 
 <main class="flex min-h-screen flex-col items-center gap-4 p-4">
+	{#snippet stepMetricsRows(sm: StepMetricsSummary)}
+		<span>Setpoint steps</span><span class="font-mono font-semibold">{sm.stepCount}</span>
+		<span>Overshoot (mean)</span><span class="font-mono font-semibold" data-testid="overshoot-value"
+			>{sm.meanOvershootPercent !== null ? sm.meanOvershootPercent.toFixed(1) + ' %' : '—'}</span
+		>
+		<span>Oscillations (mean)</span><span class="font-mono font-semibold"
+			>{sm.meanOscillationCount !== null ? sm.meanOscillationCount.toFixed(1) : '—'}</span
+		>
+		<span>Step settle (mean)</span><span class="font-mono font-semibold"
+			>{sm.meanSettleTimeSec !== null ? sm.meanSettleTimeSec.toFixed(2) + ' s' : '—'}</span
+		>
+		<span>Decay ratio (worst)</span><span class="font-mono font-semibold"
+			>{sm.worstDecayRatio !== null ? sm.worstDecayRatio.toFixed(3) : '—'}</span
+		>
+	{/snippet}
+
 	<header class="flex w-full max-w-2xl items-center justify-between">
 		<h1 class="text-2xl font-bold">Flappy Bird Control Lab</h1>
 		<a href={resolve('/')} class="text-sm text-blue-600 hover:underline">Home</a>
@@ -391,6 +563,42 @@
 
 		<!-- Speed multiplier buttons (auto modes only) -->
 		{#if currentMode !== 'manual'}
+			<!-- Actuator mode toggle -->
+			<div class="flex items-center gap-1">
+				<span class="text-sm font-medium">Actuator:</span>
+				{#each Object.entries(ACTUATOR_CONFIGS) as [key, config] (key)}
+					<button
+						data-testid="actuator-{key}"
+						onclick={() => setActuatorMode(key as ActuatorMode)}
+						title={config.description}
+						class="rounded border px-2 py-1 text-xs font-semibold {currentActuator === key
+							? 'bg-indigo-600 text-white'
+							: 'bg-white text-gray-700 hover:bg-gray-200'}"
+					>
+						{config.label}
+					</button>
+				{/each}
+			</div>
+
+			<!-- Setpoint source toggle -->
+			<div class="flex items-center gap-1">
+				<span class="text-sm font-medium">Setpoint:</span>
+				{#each [{ key: 'constant', label: 'Constant' }, { key: 'steps', label: 'Steps' }] as source (source.key)}
+					<button
+						data-testid="setpoint-{source.key}"
+						onclick={() => setSetpointSource(source.key as 'constant' | 'steps')}
+						title={source.key === 'steps'
+							? `Reference alternates ${DEFAULT_SETPOINT_SCHEDULE.levels[0]} / ${DEFAULT_SETPOINT_SCHEDULE.levels[1]} m every ${DEFAULT_SETPOINT_SCHEDULE.holdSec} s — each jump is a live step input`
+							: 'Reference holds one altitude; nudge it with ↑/↓ while running'}
+						class="rounded border px-2 py-1 text-xs font-semibold {setpointSource === source.key
+							? 'bg-teal-600 text-white'
+							: 'bg-white text-gray-700 hover:bg-gray-200'}"
+					>
+						{source.label}
+					</button>
+				{/each}
+			</div>
+
 			<div class="flex items-center gap-1">
 				<span class="text-sm font-medium">Speed:</span>
 				{#each SPEED_OPTIONS as spd (spd)}
@@ -449,7 +657,7 @@
 			</button>
 		{:else}
 			<button
-				onclick={stopGame}
+				onclick={handleStopClick}
 				class="rounded bg-red-600 px-4 py-1 text-sm font-semibold text-white hover:bg-red-700"
 			>
 				Stop
@@ -490,13 +698,38 @@
 		></canvas>
 
 		<!-- Pre-game prompt -->
-		{#if !running && alive && score === 0}
+		{#if !running && runEnded === null}
 			<div
 				class="absolute inset-0 flex flex-col items-center justify-center rounded-lg bg-black/40"
 			>
 				<p class="text-lg font-semibold text-white">
 					{currentMode === 'manual' ? 'Press Start, then Space to flap' : 'Press Start to begin'}
 				</p>
+			</div>
+		{/if}
+
+		<!-- Run-complete overlay (user pressed Stop during an auto run) -->
+		{#if !running && alive && runEnded === 'stopped' && lastMetrics}
+			<div
+				data-testid="run-report"
+				class="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-lg bg-black/70 px-6"
+			>
+				<p class="text-2xl font-bold text-white">Run Complete</p>
+				<div class="mt-1 grid grid-cols-2 gap-x-6 gap-y-0.5 text-sm text-white/90">
+					<span>IAE</span><span class="font-mono font-semibold">{lastMetrics.iae.toFixed(2)}</span>
+					<span>Peak error</span><span class="font-mono font-semibold"
+						>{lastMetrics.peakError.toFixed(3)} m</span
+					>
+					{#if lastStepMetrics}
+						{@render stepMetricsRows(lastStepMetrics)}
+					{/if}
+				</div>
+				<button
+					onclick={startGame}
+					class="mt-2 rounded bg-green-600 px-6 py-2 font-semibold text-white hover:bg-green-700"
+				>
+					Run Again
+				</button>
 			</div>
 		{/if}
 
@@ -524,6 +757,9 @@
 								? lastMetrics.settleTimeSec.toFixed(2) + ' s'
 								: '—'}</span
 						>
+						{#if lastStepMetrics}
+							{@render stepMetricsRows(lastStepMetrics)}
+						{/if}
 					</div>
 				{/if}
 				<button
@@ -542,6 +778,11 @@
 		{#if currentMode === 'manual'}
 			Press <kbd class="rounded border bg-gray-200 px-1 py-0.5 text-xs">Space</kbd> to flap.
 		{/if}
+		{#if isAutomatic}
+			Use <kbd class="rounded border bg-gray-200 px-1 py-0.5 text-xs">↑</kbd>/<kbd
+				class="rounded border bg-gray-200 px-1 py-0.5 text-xs">↓</kbd
+			> to command setpoint steps while running.
+		{/if}
 		{#if currentMode !== 'manual' && speedMultiplier > 1}
 			Running at <strong>{speedMultiplier}x</strong> speed.
 		{/if}
@@ -551,12 +792,58 @@
 		{/if}
 	</p>
 
+	<!-- Theory bridge: why the arcade actuator deviates from the analysis views -->
+	{#if isAutomatic && currentActuator === 'arcade'}
+		<p
+			data-testid="arcade-theory-hint"
+			class="max-w-2xl rounded border border-amber-200 bg-amber-50 px-3 py-2 text-center text-xs text-amber-800"
+		>
+			<strong>Arcade actuator:</strong> thrust is one-sided (0–40 N) and the controller itself must
+			generate the hover force m·g — without integral action the bird settles below the setpoint,
+			and braking an upward move relies on gravity alone. Switch the Actuator to
+			<strong>Lab</strong> for symmetric thrust around hover: the loop then matches P(s) = 1/(m·s²) from
+			the analysis views and shows textbook overshoot and oscillation.
+		</p>
+	{/if}
+	{#if isAutomatic && currentActuator === 'lab'}
+		<p
+			data-testid="lab-mode-hint"
+			class="max-w-2xl rounded border border-indigo-200 bg-indigo-50 px-3 py-2 text-center text-xs text-indigo-800"
+		>
+			<strong>Lab actuator:</strong> the controller commands a deviation u′ around hover (u = m·g +
+			u′, u′ ∈ ±{controlEffortScale(createActuatorModel('lab')).toFixed(1)} N). No pipes — this is a pure
+			regulation experiment scored by the step-response metrics. The same loop is analysed in the Analysis
+			view.
+		</p>
+	{/if}
+
 	<!-- Telemetry panel: error mini-chart + PID breakdown (auto modes, while running, overlays on) -->
 	{#if currentMode !== 'manual' && running && showOverlays}
 		<div class="w-full max-w-2xl rounded-lg border bg-white p-3">
-			<p class="mb-1 text-xs font-semibold tracking-wide text-gray-500 uppercase">
-				Error History (last {CHART_SAMPLES / 60}s)
-			</p>
+			<div class="mb-1 flex items-center justify-between">
+				<p class="text-xs font-semibold tracking-wide text-gray-500 uppercase">
+					Error History (last {CHART_SAMPLES / 60}s)
+				</p>
+				<div class="flex items-center gap-2 text-xs">
+					<span class="font-mono text-gray-600" data-testid="setpoint-readout"
+						>SP: {currentSetpoint.toFixed(1)} m</span
+					>
+					{#if saturatedNow}
+						<span
+							data-testid="saturation-badge"
+							class="rounded bg-red-100 px-2 py-0.5 font-bold text-red-700"
+							title="The controller is asking for more force than the actuator can deliver — the loop is outside the linear regime the analysis views assume"
+						>
+							SATURATED
+						</span>
+					{/if}
+					<span
+						class="font-mono {saturationPercent > 20 ? 'text-red-600' : 'text-gray-500'}"
+						title="Share of the charted window spent at an actuator limit"
+						data-testid="saturation-percent">sat {saturationPercent.toFixed(0)}%</span
+					>
+				</div>
+			</div>
 			<!-- SVG mini-chart: error over time -->
 			<svg
 				width="100%"
@@ -605,7 +892,7 @@
 									<div
 										class="absolute top-0 h-full rounded"
 										style="left:50%;width:{Math.min(
-											(term.value / MAX_CONTROL) * 50,
+											(term.value / runEffortScale) * 50,
 											50
 										)}%;background:{term.color};opacity:0.75"
 									></div>
@@ -614,7 +901,7 @@
 									<div
 										class="absolute top-0 h-full rounded"
 										style="right:50%;width:{Math.min(
-											(-term.value / MAX_CONTROL) * 50,
+											(-term.value / runEffortScale) * 50,
 											50
 										)}%;background:{term.color};opacity:0.75"
 									></div>
@@ -689,6 +976,8 @@
 							<th class="px-2 py-1 text-right font-semibold text-gray-600">ISE</th>
 							<th class="px-2 py-1 text-right font-semibold text-gray-600">Peak err</th>
 							<th class="px-2 py-1 text-right font-semibold text-gray-600">Settle</th>
+							<th class="px-2 py-1 text-right font-semibold text-gray-600">OS%</th>
+							<th class="px-2 py-1 text-right font-semibold text-gray-600">Act</th>
 							<th class="px-2 py-1 text-right font-semibold text-gray-600">Wind</th>
 						</tr>
 					</thead>
@@ -709,6 +998,14 @@
 									>{run.metrics?.settleTimeSec != null
 										? run.metrics.settleTimeSec.toFixed(1) + 's'
 										: '—'}</td
+								>
+								<td class="px-2 py-1 text-right font-mono"
+									>{run.stepMetrics?.meanOvershootPercent != null
+										? run.stepMetrics.meanOvershootPercent.toFixed(0)
+										: '—'}</td
+								>
+								<td class="px-2 py-1 text-right font-mono text-gray-500"
+									>{run.actuatorMode === 'lab' ? 'Lab' : 'Arc'}</td
 								>
 								<td
 									class="px-2 py-1 text-right font-mono {run.disturbance !== 0

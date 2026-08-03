@@ -38,6 +38,12 @@ export interface GameConfig {
 	obstacleSpacing: number;
 	/** Horizontal scroll speed (world units per second) */
 	scrollSpeed: number;
+	/**
+	 * Whether pipe obstacles are spawned. Disabled for regulation experiments
+	 * (lab actuator mode) where the run is a pure setpoint-tracking exercise;
+	 * floor/ceiling collisions still end the run.
+	 */
+	spawnObstacles: boolean;
 }
 
 export const DEFAULT_GAME_CONFIG: GameConfig = {
@@ -48,7 +54,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
 	birdRadius: 0.3,
 	obstacleHalfWidth: 0.5,
 	obstacleSpacing: 6.0,
-	scrollSpeed: 3.0
+	scrollSpeed: 3.0,
+	spawnObstacles: true
 };
 
 export class GameEngine {
@@ -188,7 +195,10 @@ export class GameEngine {
 		// far enough that there's room for the next one.
 		const rightmostX = obstacles.length > 0 ? Math.max(...obstacles.map((o) => o.x)) : -Infinity;
 
-		if (rightmostX < this.config.obstacleConfig.spawnX - this.config.obstacleSpacing) {
+		if (
+			this.config.spawnObstacles &&
+			rightmostX < this.config.obstacleConfig.spawnX - this.config.obstacleSpacing
+		) {
 			const newObstacle = spawnObstacle(this.rng, this.config.obstacleConfig);
 			obstacles = [...obstacles, newObstacle];
 			this.nextObstacleX = newObstacle.x - this.config.obstacleSpacing;

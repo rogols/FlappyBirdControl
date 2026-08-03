@@ -109,9 +109,9 @@ Seven loosely-coupled modules. Keep them isolated — no hidden cross-module cou
 
 ```
 src/lib/
-  game/          # Simulation clock, world state, physics (ODE), obstacles, collision, Three.js renderer
+  game/          # Simulation clock, world state, physics (ODE), actuator model, setpoint schedule, obstacles, collision, Three.js renderer
   control/       # Controller interface + On-Off, PID, TransferFunction implementations
-  analysis/      # Step response, Bode, pole-zero, ODE model display
+  analysis/      # Step response (open- and closed-loop), Bode, pole-zero, ODE model display
   telemetry/     # Time-series recording, overlay rendering, metric aggregation
   persistence/   # LocalStorage: settings, controller presets, high scores, run summaries
   ui/            # Svelte stores, mode configuration
@@ -192,8 +192,8 @@ Seeded RNG for disturbances and obstacles
 
 1. `npm run qa` green before any commit.
 2. Never reduce test coverage for `control/` or `analysis/` modules.
-3. Analysis view and game runtime must use the **same** shared model — never duplicate physics.
-4. Control output must be clamped and validated before being applied to the plant.
+3. Analysis view and game runtime must use the **same** shared model — never duplicate physics or the actuator mapping. The contract test in `src/lib/analysis/closed-loop.test.ts` pins them together; if it fails, the two have drifted — fix the drift, never the tolerance.
+4. Control output must be clamped and validated before being applied to the plant. Derive controller clamps and plant saturation from `createActuatorModel` so they cannot disagree — never hardcode `[0, 40]`.
 5. Never merge code that produces `NaN` or `Infinity` in simulation state.
 6. Playwright E2E suite must pass on every PR — no exceptions.
 7. Preserve deterministic simulation: seeded RNG, fixed `Δt`, no `Date.now()` inside physics loop.
@@ -231,6 +231,7 @@ Examples:
 Agents may freely modify files within their assigned module boundary. Cross-module changes require explicit justification. Files that must never be changed without human discussion:
 
 - `src/lib/game/physics.ts` (or equivalent shared physics source) — shared between game and analysis
+- `src/lib/game/actuator.ts` — defines what a controller's output _means_ before it reaches the plant; game runtime, closed-loop analysis, and the linear models all depend on this contract
 - Any file defining the `Controller` interface
 - `package.json` scripts (except to add new ones via a reviewed PR)
 - Agent role and workflow definitions (documentation agent only)
@@ -271,8 +272,8 @@ Agents may freely modify files within their assigned module boundary. Cross-modu
 
 Do not build on top of these without accounting for them (see `docs/improvement-plan.md` for the fix items):
 
-- **`src/routes/game/+page.svelte` and `src/routes/analysis/+page.svelte` are oversized** (700–900 lines) and hold game-loop/chart logic inline with no unit coverage. Planned extraction: FBC-101 / FBC-102. Prefer adding logic to `src/lib/` modules, not to these pages.
-- **E2E coverage is minimal** until FBC-005 lands — a green `npm run test:e2e` does not yet prove the critical flows work. Verify UI changes manually or add the missing spec.
+- **`src/routes/game/+page.svelte` and `src/routes/analysis/+page.svelte` are oversized** (~1000–1250 lines after FBC-206/208 landed) and hold game-loop/chart logic inline with no unit coverage. Planned extraction: FBC-101 / FBC-102. Prefer adding logic to `src/lib/` modules, not to these pages.
+- **E2E coverage is partial** until FBC-005 lands — `e2e/lab-mode.test.ts` covers the lab-actuator/setpoint-step and closed-loop-analysis flows, but the four critical flows in `docs/TEST_GUARDRAILS.md §2.3` are still uncovered. Verify UI changes manually or add the missing spec.
 - **Coverage thresholds are not yet machine-enforced** (FBC-003); the targets in §Testing still apply — check them yourself.
 - **`static/sprites/` contains copyrighted Flappy Bird art** (.GEARS Studio). The owner accepts private classroom use (OQ-4, 2026-07-04), but the repo must not be made public and the sprites must not be served from any public URL until OQ-5 is resolved (FBC-008); do not add more third-party assets without a license check (FBC-006 / OQ-5).
 - **`GameEngine.nextObstacleX` is dead state** (written, never read); spawn logic derives from `rightmostX`. Do not build on it (FBC-104 removes it).

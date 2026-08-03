@@ -7,6 +7,19 @@
 
 **Audit date:** 2026-07-03 · **Audited commit:** `a49e858` · **Owner:** Roger Olsson
 
+### Current status (updated 2026-07-11)
+
+**Done since the audit:** FBC-204…208 — the regulator-visibility work (owner direction
+2026-07-11): a shared actuator model with selectable `arcade` / `lab` modes, a
+deterministic setpoint step schedule, step-response and saturation metrics, and the
+closed-loop step-response view with its theory-vs-game explainer (which also completed
+FBC-302). Part 1's audit verdict below is a snapshot of 2026-07-03 and has **not** been
+re-run; per-item Status fields in Part 2 are authoritative.
+
+**Next item by the selection rule:** FBC-001 (CI pipeline) — the highest-value remaining
+gap, since the quality gate is still enforced only by convention. Phase 0 items FBC-001…
+FBC-005 all remain `Todo`.
+
 ---
 
 ## Part 1 — Executive Summary
@@ -32,9 +45,10 @@ labelled "enforced," but no coverage tooling is installed, so nothing enforces t
 E2E suite is a single placeholder test (asserts an `<h1>` is visible); none of the four
 critical flows named in `docs/TEST_GUARDRAILS.md` are covered, and the S1–S5 scenario
 catalog was never built. The two route pages are the weakest code in the repo:
-`src/routes/analysis/+page.svelte` (892 lines) and `src/routes/game/+page.svelte`
-(728 lines) contain the RAF game loop, controller orchestration, and chart construction
-inline, where unit tests cannot reach them. Documentation had drifted: a stale `Agents.md`
+`src/routes/analysis/+page.svelte` (892 lines at audit; ~1250 after FBC-208) and
+`src/routes/game/+page.svelte` (728 lines at audit; ~1025 after FBC-206) contain the
+game loop, controller orchestration, and chart construction inline, where unit tests
+cannot reach them. Documentation had drifted: a stale `Agents.md`
 contradicted `AGENTS.md` about which file was canonical (fixed in the same commit that
 adds this plan). Finally, `static/sprites/` contains the original copyrighted Flappy Bird
 art (.GEARS Studio) — acceptable for private classroom use, a legal risk if the repo or a
@@ -74,8 +88,9 @@ before anything moves. Phase 1 pays down the main architectural debt behind that
 extract the game-session orchestration and analysis chart builders out of the two
 oversized route pages into testable library modules, then encode the S1–S5 scenario
 catalog as seeded integration tests. Phases 2–4 then add capability in the order the
-owner confirmed — pedagogy (guided scenarios, concept explanations), analysis depth
-(stability margins, closed-loop step response, root locus), and UX & accessibility
+owner confirmed — pedagogy (guided scenarios, concept explanations, and the delivered
+actuator/step-response work of FBC-204…208), analysis depth (stability margins,
+closed-loop step response — delivered by FBC-208 — and root locus), and UX & accessibility
 (keyboard/contrast, projector-friendly classroom display). Replay/comparison tooling is
 deferred and run export is dropped (localStorage-only decision, with a class leaderboard
 as possible future scope). There is no hosted deployment: the static build is served by
@@ -224,9 +239,10 @@ Priority values: `P0` (do first) · `P1` (next) · `P2` (nice to have).
 #### FBC-101 — Extract game-session orchestration from the game route
 
 - **Status:** Todo · **Priority:** P1 · **Depends-on:** FBC-005
-- **Problem:** `src/routes/game/+page.svelte` (728 lines) holds the RAF loop, controller
-  selection/stepping, telemetry wiring, scoring, and run persistence inline — the most
-  behaviour-rich code in the repo with zero unit coverage.
+- **Problem:** `src/routes/game/+page.svelte` (728 lines at audit, ~1025 after FBC-206)
+  holds the fixed-step loop, controller selection/stepping, telemetry wiring, scoring,
+  and run persistence inline — the most behaviour-rich code in the repo with zero unit
+  coverage.
 - **Scope:** Create `src/lib/game/session.ts` (framework-free class/functions) owning:
   controller-for-mode construction, per-tick controller update + engine stepping,
   telemetry recording, game-over bookkeeping (high score + run summary). The Svelte page
@@ -234,13 +250,18 @@ Priority values: `P0` (do first) · `P1` (next) · `P2` (nice to have).
 - **Acceptance:** Page shrinks below ~300 lines; new module has unit tests covering
   mode switching, a seeded auto-mode run, and game-over persistence; E2E flows
   (FBC-005) still green. Gate: `npm run qa` + coverage not reduced.
+- **Carry-over test (from FBC-206):** the extracted loop must be covered by a regression
+  test asserting that the controller's sampling period is the fixed Δt regardless of the
+  speed multiplier — i.e. a 1× and an 8× run of the same duration produce identical
+  trajectories. This defect was fixed in the page but cannot be unit-tested until the
+  loop leaves the Svelte component.
 
 #### FBC-102 — Extract analysis chart building from the analysis route
 
 - **Status:** Todo · **Priority:** P1 · **Depends-on:** FBC-005
-- **Problem:** `src/routes/analysis/+page.svelte` (892 lines) builds SVG chart geometry
-  (step response, Bode, pole-zero) inline; chart math is untestable and duplicated
-  scaling logic is likely.
+- **Problem:** `src/routes/analysis/+page.svelte` (892 lines at audit, ~1250 after
+  FBC-208) builds SVG chart geometry (step response open- and closed-loop, Bode,
+  pole-zero) inline; chart math is untestable and duplicated scaling logic is likely.
 - **Scope:** Move point/path/scale computation into pure functions (e.g.
   `src/lib/analysis/chart-data.ts` or `src/lib/ui/charts.ts`); the page maps their
   output to SVG markup. No visual change.
@@ -301,6 +322,103 @@ Priority values: `P0` (do first) · `P1` (next) · `P2` (nice to have).
   and no file export. Kept for the record; do not implement unless the owner reverses
   the decision here.
 
+#### FBC-204 — Shared actuator model (arcade / lab)
+
+- **Status:** Done · **Priority:** P1 · **Depends-on:** —
+- **Owner direction (2026-07-11):** make regulator effects (overshoot, oscillation,
+  convergence) clearly visible. Chosen approach: keep Flappy Bird; add a selectable
+  "lab" actuator with symmetric thrust about hover so the closed loop matches the
+  linear analysis model, and bridge the remaining theory gap in the UI (FBC-205…208).
+- **Problem:** The arcade actuator is one-sided (u ∈ [0, 40] N): the controller pushes
+  up, only gravity pulls down. The closed-loop response is asymmetric and never matches
+  the double-integrator model the analysis views assume, so textbook behaviour is
+  invisible in the game.
+- **Scope:** `src/lib/game/actuator.ts` — pure actuator model mapping controller output
+  to plant thrust. Arcade = total thrust in [0, 40] (bit-identical to before); lab =
+  deviation u′ ∈ ±m·g around the exact hover feedforward u_eq = m·g, with plant
+  saturation derived from the same numbers so controller clamp and physics clamp can
+  never disagree. `spawnObstacles` flag on `GameConfig` (lab runs are obstacle-free
+  regulation experiments). Re-exported through `analysis/model.ts`. `physics.ts`
+  untouched — lab mode is pure parameterization.
+- **Acceptance:** Unit tests prove arcade equals historical constants, lab clamps are
+  symmetric and realizable by the one-sided thruster, and `toPlantControl` output always
+  lies within plant limits. Gate: `npm run qa`.
+- **Completed 2026-07-11** — feat(game): add shared actuator model, setpoint schedule,
+  and obstacle-free lab runs.
+
+#### FBC-205 — Deterministic setpoint step schedule
+
+- **Status:** Done · **Priority:** P1 · **Depends-on:** —
+- **Problem:** The setpoint was a hardcoded constant (5.0 m), so a live step response —
+  the single most instructive stimulus — never occurred during play.
+- **Scope:** `src/lib/game/setpoint-schedule.ts` — pure function of simulation time
+  (replay-safe): hold 5.0 m for 3 s, then alternate 5.5 / 4.5 m every 6 s. The 1 m steps
+  keep the default lab PID inside its ±m·g clamp (Kp·|step| = 8 N < 9.81 N), so the
+  response stays essentially linear. Game page offers Constant / Steps sources and
+  ↑/↓ keyboard steps (each press is a step input).
+- **Acceptance:** Unit tests for boundaries, alternation, determinism, and world-bounds
+  containment. Gate: `npm run qa`.
+- **Completed 2026-07-11** — feat(game): add shared actuator model, setpoint schedule,
+  and obstacle-free lab runs.
+
+#### FBC-206 — Per-actuator controller defaults and game-page wiring
+
+- **Status:** Done · **Priority:** P1 · **Depends-on:** FBC-204, FBC-205
+- **Problem:** Controller output clamps were hardcoded to [0, 40] in three places and
+  the game page hardcoded the setpoint and effort normalisation, so an actuator mode
+  could not be introduced consistently.
+- **Scope:** `src/lib/ui/controller-defaults.ts` — controller factory deriving output
+  limits from the actuator model (On-Off becomes symmetric ±6 N in lab mode;
+  `TFController.getParams()` added so an analysis-applied C(s) is rebuilt with matching
+  limits). Game page: Actuator and Setpoint toggles, engine constructed from the
+  actuator's plant params, controller output routed through `toPlantControl`, effort
+  bars normalised by the actuator scale, presets pinned to arcade.
+- **Acceptance:** Unit tests for the factory across both actuator modes; E2E scenario
+  runs a lab step schedule end-to-end. Gate: `npm run qa`.
+- **Completed 2026-07-11** — feat(ui): wire actuator modes, setpoint sources, and
+  step-response reporting into the game view.
+
+#### FBC-207 — Step-response and saturation metrics
+
+- **Status:** Done · **Priority:** P1 · **Depends-on:** FBC-205
+- **Problem:** Telemetry had no overshoot, oscillation, or saturation measures — the
+  quantities a controls course actually grades — so students could not compare what
+  they saw against theory.
+- **Scope:** `metrics.ts`: `computeStepResponseMetrics` (per-step overshoot %,
+  oscillation half-cycles, classic same-side-peak decay ratio, per-step settling time),
+  `summarizeStepMetrics`, `saturationFraction`. Game page: live SATURATED badge +
+  %-time-saturated readout, step metrics in the end-of-run report (crash or Stop),
+  optional `stepMetrics`/`actuatorMode` on `RunSummary` (old localStorage entries stay
+  parseable). Stop now finalizes metrics for auto runs — lab runs have no pipes, so
+  Stop is their natural end.
+- **Acceptance:** Metrics validated against the analytical 2nd-order step response
+  (overshoot and decay ratio for ζ = 0.2 / 0.5 within 1–5%; overdamped → 0%/null).
+  Gate: `npm run qa`.
+- **Completed 2026-07-11** — feat(telemetry): add step-response and saturation metrics.
+
+#### FBC-208 — Closed-loop step response and theory bridge (implements FBC-302)
+
+- **Status:** Done · **Priority:** P1 · **Depends-on:** FBC-204
+- **Problem:** The analysis view only showed the open-loop plant step; nothing showed
+  the effect of the tuned controller, and nowhere explained why the game deviates from
+  the linear analysis.
+- **Scope:** `src/lib/analysis/closed-loop.ts`: `simulateClosedLoop` (exact game path —
+  shared `stepPhysics` + actuator model) and `simulateLinearClosedLoop` (the same
+  double-integrator model Bode/pole-zero analyse). Analysis page: overlaid game-truth /
+  textbook traces with per-trace overshoot, settling, oscillation, and decay-ratio
+  readouts, controller and actuator selectors, and a "Why the game differs from the
+  textbook" explainer. Game page shows a one-line arcade-vs-theory hint. Landed before
+  FBC-102, so chart markup is inline like the existing sections; extraction remains
+  FBC-102 scope.
+- **Acceptance:** Anti-drift contract test — the closed-loop simulation matches a
+  `GameEngine` run step-for-step (|Δy| < 1e-9); linear simulation validated against
+  P-only analytic results (100% overshoot, ωₙ period within 2%); lab-mode default-PID
+  overshoot inside the linear prediction envelope; arcade gravity bias demonstrated
+  (PD steady-state droop = m·g/Kp vs zero in lab; gravity-biased vs centred on-off
+  limit cycle). Gate: `npm run qa`.
+- **Completed 2026-07-11** — feat(analysis): add closed-loop step response with
+  linear-model comparison.
+
 ---
 
 ### Phase 3 — Analysis depth
@@ -318,7 +436,8 @@ Priority values: `P0` (do first) · `P1` (next) · `P2` (nice to have).
 
 #### FBC-302 — Closed-loop step response for all controller types
 
-- **Status:** Todo · **Priority:** P1 · **Depends-on:** FBC-102
+- **Status:** Done (implemented by FBC-208, 2026-07-11 — see Phase 2) · **Priority:**
+  P1 · **Depends-on:** FBC-102
 - **Problem:** The step-response view is open-loop only; students cannot see the effect
   of their tuned controller on the tracking response — the single most instructive plot.
 - **Scope:** Simulate the closed loop (shared physics + active controller) for a
@@ -421,10 +540,15 @@ graph TD
     subgraph P2["Phase 2 — Pedagogy"]
         FBC201[FBC-201 Guided scenarios]
         FBC202[FBC-202 Concept tooltips]
+        FBC204[FBC-204 Actuator model ✓]
+        FBC205[FBC-205 Setpoint schedule ✓]
+        FBC206[FBC-206 Actuator/setpoint UI ✓]
+        FBC207[FBC-207 Step metrics ✓]
+        FBC208[FBC-208 Closed-loop + bridge ✓]
     end
     subgraph P3["Phase 3 — Analysis depth"]
         FBC301[FBC-301 Margins]
-        FBC302[FBC-302 Closed-loop step]
+        FBC302[FBC-302 Closed-loop step ✓ via FBC-208]
         FBC303[FBC-303 Root locus]
     end
     subgraph P4["Phase 4 — UX & accessibility"]
@@ -446,16 +570,29 @@ graph TD
     FBC101 --> FBC103
     FBC103 --> FBC201
     FBC102 --> FBC301
-    FBC102 --> FBC302
+    FBC102 -.superseded.-> FBC302
     FBC301 --> FBC303
     FBC102 --> FBC403
     FBC101 --> FBC404
     FBC102 --> FBC404
     FBC101 --> FBC401
     FBC401 --> FBC402
+
+    FBC204 --> FBC206
+    FBC205 --> FBC206
+    FBC205 --> FBC207
+    FBC206 --> FBC207
+    FBC204 --> FBC208
+    FBC208 -.implements.-> FBC302
+
+    classDef done fill:#dcfce7,stroke:#16a34a,color:#14532d
+    class FBC204,FBC205,FBC206,FBC207,FBC208,FBC302 done
 ```
 
-_(Dropped: FBC-203 run export, per OQ-2.)_
+_(✓ = Done. FBC-302's original dependency on FBC-102 is shown dotted because it was
+superseded: FBC-208 delivered it ahead of the chart-builder extraction, so the new charts
+are inline like the existing ones and extracting them stays FBC-102's job. Dropped:
+FBC-203 run export, per OQ-2.)_
 
 ### Open questions for the owner
 

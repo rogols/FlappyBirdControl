@@ -8,7 +8,11 @@ Students should be able to:
 
 - play manually,
 - compare automatic controllers (On-Off, PID, generic transfer-function controller),
-- inspect analysis views (ODE, step response, Bode, pole-zero), and
+- switch between the arcade actuator (one-sided thrust, authentic game feel) and the
+  lab actuator (symmetric thrust about hover, matching the linear analysis model),
+- excite the loop with setpoint steps and read textbook step-response metrics
+  (overshoot, oscillation, decay ratio, settling time, saturation),
+- inspect analysis views (ODE, open- and closed-loop step response, Bode, pole-zero), and
 - learn through rich debug visualizations in game context.
 
 ## Planning documentation

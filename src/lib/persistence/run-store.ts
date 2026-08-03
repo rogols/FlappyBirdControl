@@ -8,7 +8,7 @@
  * Maximum entries retained: `MAX_RUNS`.
  */
 
-import type { PerformanceMetrics } from '../telemetry/metrics.ts';
+import type { PerformanceMetrics, StepMetricsSummary } from '../telemetry/metrics.ts';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,6 +35,13 @@ export interface RunSummary {
 	disturbance: number;
 	/** Performance metrics (null for manual mode) */
 	metrics: PerformanceMetrics | null;
+	/**
+	 * Actuator mode used for the run. Optional — absent on runs recorded
+	 * before actuator modes existed (implicitly 'arcade').
+	 */
+	actuatorMode?: 'arcade' | 'lab';
+	/** Step-response metric summary (only when setpoint steps occurred). Optional. */
+	stepMetrics?: StepMetricsSummary | null;
 }
 
 // ---------------------------------------------------------------------------
